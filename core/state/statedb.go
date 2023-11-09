@@ -53,6 +53,9 @@ var (
 	getCommittedStorageExpiredLocalReviveMeter = metrics.NewRegisteredMeter("state/contract/committed/expired/localrevive", nil)
 	getCommittedStorageUnexpiredMeter          = metrics.NewRegisteredMeter("state/contract/committed/unexpired", nil)
 	getCommittedStorageRemoteMeter             = metrics.NewRegisteredMeter("state/contract/committed/remote", nil)
+	storageReadMeter                           = metrics.NewRegisteredMeter("state/contract/state/read", nil)
+	storageWriteMeter                          = metrics.NewRegisteredMeter("state/contract/state/write", nil)
+	storageAccessMeter                         = metrics.NewRegisteredMeter("state/contract/state/access", nil)
 )
 
 type revision struct {
