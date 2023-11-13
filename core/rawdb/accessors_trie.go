@@ -286,9 +286,9 @@ func DeleteTrieNode(db ethdb.KeyValueWriter, owner common.Hash, path []byte, has
 
 // ReadStateScheme reads the state scheme of persistent state, or none
 // if the state is not present in database.
-func ReadStateScheme(db ethdb.Reader) string {
+func ReadStateScheme(db ethdb.Database) string {
 	// Check if state in path-based scheme is present
-	blob, _ := ReadAccountTrieNode(db, nil)
+	blob, _ := ReadAccountTrieNode(TryShardingByHash(db, common.Hash{}), nil)
 	if len(blob) != 0 {
 		return PathScheme
 	}

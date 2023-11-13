@@ -17,7 +17,11 @@
 // Package ethdb defines the interfaces for an Ethereum data store.
 package ethdb
 
-import "io"
+import (
+	"io"
+
+	"github.com/ethereum/go-ethereum/common"
+)
 
 // KeyValueReader wraps the Has and Get method of a backing data store.
 type KeyValueReader interface {
@@ -189,6 +193,12 @@ type DiffStore interface {
 	SetDiffStore(diff KeyValueStore)
 }
 
+type Sharding interface {
+	Sharded() bool
+	Shard(index uint64) KeyValueStore
+	ShardByHash(h common.Hash) KeyValueStore
+}
+
 // Database contains all the methods required by the high level database to not
 // only access the key-value data store but also the chain freezer.
 type Database interface {
@@ -200,5 +210,6 @@ type Database interface {
 	Stater
 	Compacter
 	Snapshotter
+	Sharding
 	io.Closer
 }

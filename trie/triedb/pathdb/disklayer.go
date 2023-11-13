@@ -48,15 +48,15 @@ type trienodebuffer interface {
 	// revert is the reverse operation of commit. It also merges the provided nodes
 	// into the trienodebuffer, the difference is that the provided node set should
 	// revert the changes made by the last state transition.
-	revert(db ethdb.KeyValueReader, nodes map[common.Hash]map[string]*trienode.Node) error
+	revert(db ethdb.Database, nodes map[common.Hash]map[string]*trienode.Node) error
 
 	// flush persists the in-memory dirty trie node into the disk if the configured
 	// memory threshold is reached. Note, all data must be written atomically.
-	flush(db ethdb.KeyValueStore, clean *fastcache.Cache, id uint64, force bool) error
+	flush(db ethdb.Database, clean *fastcache.Cache, id uint64, force bool) error
 
 	// setSize sets the buffer size to the provided number, and invokes a flush
 	// operation if the current memory usage exceeds the new limit.
-	setSize(size int, db ethdb.KeyValueStore, clean *fastcache.Cache, id uint64) error
+	setSize(size int, db ethdb.Database, clean *fastcache.Cache, id uint64) error
 
 	// reset cleans up the disk cache.
 	reset()
@@ -75,12 +75,12 @@ type trienodebuffer interface {
 }
 
 func NewTrieNodeBuffer(sync bool, limit int, nodes map[common.Hash]map[string]*trienode.Node, layers uint64) trienodebuffer {
-	if sync {
-		log.Info("new sync node buffer", "limit", common.StorageSize(limit), "layers", layers)
-		return newNodeBuffer(limit, nodes, layers)
-	}
-	log.Info("new async node buffer", "limit", common.StorageSize(limit), "layers", layers)
-	return newAsyncNodeBuffer(limit, nodes, layers)
+	//if sync {
+	log.Info("new sync node buffer", "limit", common.StorageSize(limit), "layers", layers)
+	return newNodeBuffer(limit, nodes, layers)
+	//}
+	//log.Info("new async node buffer", "limit", common.StorageSize(limit), "layers", layers)
+	//return newAsyncNodeBuffer(limit, nodes, layers)
 }
 
 // diskLayer is a low level persistent layer built on top of a key-value store.
@@ -195,9 +195,9 @@ func (dl *diskLayer) Node(owner common.Hash, path []byte, hash common.Hash) ([]b
 		nHash common.Hash
 	)
 	if owner == (common.Hash{}) {
-		nBlob, nHash = rawdb.ReadAccountTrieNode(dl.db.diskdb, path)
+		nBlob, nHash = rawdb.ReadAccountTrieNode(rawdb.TryShardingByHash(dl.db.diskdb, owner), path)
 	} else {
-		nBlob, nHash = rawdb.ReadStorageTrieNode(dl.db.diskdb, owner, path)
+		nBlob, nHash = rawdb.ReadStorageTrieNode(rawdb.TryShardingByHash(dl.db.diskdb, owner), owner, path)
 	}
 	if nHash != hash {
 		diskFalseMeter.Mark(1)
@@ -325,7 +325,8 @@ func (dl *diskLayer) revert(h *history, loader triestate.TrieLoader) (*diskLayer
 		}
 	} else {
 		batch := dl.db.diskdb.NewBatch()
-		writeNodes(batch, nodes, dl.cleans)
+		//writeNodes(batch, nodes, dl.cleans)
+		writeShardingNodes(dl.db.diskdb, nodes, dl.cleans)
 		rawdb.WritePersistentStateID(batch, dl.id-1)
 		if err := batch.Write(); err != nil {
 			log.Crit("Failed to write states", "err", err)

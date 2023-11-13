@@ -17,6 +17,7 @@
 package rawdb
 
 import (
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
 )
 
@@ -25,6 +26,18 @@ import (
 type table struct {
 	db     ethdb.Database
 	prefix string
+}
+
+func (t *table) Sharded() bool {
+	return false
+}
+
+func (t *table) Shard(index uint64) ethdb.KeyValueStore {
+	panic("implement me")
+}
+
+func (t *table) ShardByHash(h common.Hash) ethdb.KeyValueStore {
+	panic("implement me")
 }
 
 // NewTable returns a database object that prefixes all keys with a given string.

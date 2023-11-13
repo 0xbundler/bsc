@@ -77,7 +77,7 @@ func (a *asyncnodebuffer) commit(nodes map[common.Hash]map[string]*trienode.Node
 // revert is the reverse operation of commit. It also merges the provided nodes
 // into the nodebuffer, the difference is that the provided node set should
 // revert the changes made by the last state transition.
-func (a *asyncnodebuffer) revert(db ethdb.KeyValueReader, nodes map[common.Hash]map[string]*trienode.Node) error {
+func (a *asyncnodebuffer) revert(db ethdb.Database, nodes map[common.Hash]map[string]*trienode.Node) error {
 	a.mux.Lock()
 	defer a.mux.Unlock()
 
@@ -91,7 +91,7 @@ func (a *asyncnodebuffer) revert(db ethdb.KeyValueReader, nodes map[common.Hash]
 }
 
 // setSize is unsupported in asyncnodebuffer, due to the double buffer, blocking will occur.
-func (a *asyncnodebuffer) setSize(size int, db ethdb.KeyValueStore, clean *fastcache.Cache, id uint64) error {
+func (a *asyncnodebuffer) setSize(size int, db ethdb.Database, clean *fastcache.Cache, id uint64) error {
 	return errors.New("not supported")
 }
 
@@ -121,7 +121,7 @@ func (a *asyncnodebuffer) empty() bool {
 
 // flush persists the in-memory dirty trie node into the disk if the configured
 // memory threshold is reached. Note, all data must be written atomically.
-func (a *asyncnodebuffer) flush(db ethdb.KeyValueStore, clean *fastcache.Cache, id uint64, force bool) error {
+func (a *asyncnodebuffer) flush(db ethdb.Database, clean *fastcache.Cache, id uint64, force bool) error {
 	a.mux.Lock()
 	defer a.mux.Unlock()
 
@@ -288,7 +288,7 @@ func (nc *nodecache) empty() bool {
 	return nc.layers == 0
 }
 
-func (nc *nodecache) flush(db ethdb.KeyValueStore, clean *fastcache.Cache, id uint64) error {
+func (nc *nodecache) flush(db ethdb.Database, clean *fastcache.Cache, id uint64) error {
 	if atomic.LoadUint64(&nc.immutable) != 1 {
 		return errFlushMutable
 	}
@@ -302,7 +302,11 @@ func (nc *nodecache) flush(db ethdb.KeyValueStore, clean *fastcache.Cache, id ui
 		start = time.Now()
 		batch = db.NewBatchWithSize(int(float64(nc.size) * DefaultBatchRedundancyRate))
 	)
-	nodes := writeNodes(batch, nc.nodes, clean)
+	//nodes := writeNodes(batch, nc.nodes, clean)
+	nodes, err := writeShardingNodes(db, nc.nodes, clean)
+	if err != nil {
+		return err
+	}
 	rawdb.WritePersistentStateID(batch, id)
 
 	// Flush all mutations in a single batch
@@ -372,7 +376,7 @@ func (nc *nodecache) merge(nc1 *nodecache) (*nodecache, error) {
 	return res, nil
 }
 
-func (nc *nodecache) revert(db ethdb.KeyValueReader, nodes map[common.Hash]map[string]*trienode.Node) error {
+func (nc *nodecache) revert(db ethdb.Database, nodes map[common.Hash]map[string]*trienode.Node) error {
 	if atomic.LoadUint64(&nc.immutable) == 1 {
 		return errRevertImmutable
 	}
@@ -407,9 +411,9 @@ func (nc *nodecache) revert(db ethdb.KeyValueReader, nodes map[common.Hash]map[s
 				// node occurs which is not present in buffer.
 				var nhash common.Hash
 				if owner == (common.Hash{}) {
-					_, nhash = rawdb.ReadAccountTrieNode(db, []byte(path))
+					_, nhash = rawdb.ReadAccountTrieNode(rawdb.TryShardingByHash(db, owner), []byte(path))
 				} else {
-					_, nhash = rawdb.ReadStorageTrieNode(db, owner, []byte(path))
+					_, nhash = rawdb.ReadStorageTrieNode(rawdb.TryShardingByHash(db, owner), owner, []byte(path))
 				}
 				// Ignore the clean node in the case described above.
 				if nhash == n.Hash {

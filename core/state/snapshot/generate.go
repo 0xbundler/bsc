@@ -55,7 +55,7 @@ var (
 // generateSnapshot regenerates a brand new snapshot based on an existing state
 // database and head block asynchronously. The snapshot is returned immediately
 // and generation is continued in the background until done.
-func generateSnapshot(diskdb ethdb.KeyValueStore, triedb *trie.Database, cache int, root common.Hash) *diskLayer {
+func generateSnapshot(diskdb ethdb.Database, triedb *trie.Database, cache int, root common.Hash) *diskLayer {
 	// Create a new disk layer with an initialized state marker at zero
 	var (
 		stats     = &generatorStats{start: time.Now()}
@@ -522,12 +522,12 @@ func generateStorages(ctx *generatorContext, dl *diskLayer, stateRoot common.Has
 		}(time.Now())
 
 		if delete {
-			rawdb.DeleteStorageSnapshot(ctx.batch, account, common.BytesToHash(key))
+			rawdb.DeleteStorageSnapshot(rawdb.TryShardingByHash(dl.diskdb, account), account, common.BytesToHash(key))
 			snapWipedStorageMeter.Mark(1)
 			return nil
 		}
 		if write {
-			rawdb.WriteStorageSnapshot(ctx.batch, account, common.BytesToHash(key), val)
+			rawdb.WriteStorageSnapshot(rawdb.TryShardingByHash(dl.diskdb, account), account, common.BytesToHash(key), val)
 			snapGeneratedStorageMeter.Mark(1)
 		} else {
 			snapRecoveredStorageMeter.Mark(1)
@@ -571,7 +571,7 @@ func generateAccounts(ctx *generatorContext, dl *diskLayer, accMarker []byte) er
 
 		start := time.Now()
 		if delete {
-			rawdb.DeleteAccountSnapshot(ctx.batch, account)
+			rawdb.DeleteAccountSnapshot(rawdb.TryShardingByHash(dl.diskdb, common.Hash{}), account)
 			snapWipedAccountMeter.Mark(1)
 			snapAccountWriteCounter.Inc(time.Since(start).Nanoseconds())
 
@@ -597,7 +597,7 @@ func generateAccounts(ctx *generatorContext, dl *diskLayer, accMarker []byte) er
 			} else {
 				data := types.SlimAccountRLP(acc)
 				dataLen = len(data)
-				rawdb.WriteAccountSnapshot(ctx.batch, account, data)
+				rawdb.WriteAccountSnapshot(rawdb.TryShardingByHash(dl.diskdb, common.Hash{}), account, data)
 				snapGeneratedAccountMeter.Mark(1)
 			}
 			ctx.stats.storage += common.StorageSize(1 + common.HashLength + dataLen)

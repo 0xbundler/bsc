@@ -26,6 +26,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/ethdb/shardingdb"
+
 	"github.com/olekukonko/tablewriter"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -42,6 +44,25 @@ type freezerdb struct {
 	ethdb.KeyValueStore
 	ethdb.AncientStore
 	diffStore ethdb.KeyValueStore
+	sharding  *shardingdb.Database
+}
+
+func (frdb *freezerdb) Sharded() bool {
+	return true
+}
+
+func (frdb *freezerdb) Shard(index uint64) ethdb.KeyValueStore {
+	if frdb.sharding == nil {
+		return frdb
+	}
+	return frdb.sharding.Shard(index)
+}
+
+func (frdb *freezerdb) ShardByHash(h common.Hash) ethdb.KeyValueStore {
+	if frdb.sharding == nil {
+		return frdb
+	}
+	return frdb.sharding.ShardByHash(h)
 }
 
 // AncientDatadir returns the path of root ancient directory.
@@ -61,6 +82,11 @@ func (frdb *freezerdb) Close() error {
 	}
 	if frdb.diffStore != nil {
 		if err := frdb.diffStore.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if frdb.sharding != nil {
+		if err := frdb.sharding.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -105,6 +131,25 @@ func (frdb *freezerdb) Freeze(threshold uint64) error {
 type nofreezedb struct {
 	ethdb.KeyValueStore
 	diffStore ethdb.KeyValueStore
+	sharding  *shardingdb.Database
+}
+
+func (db *nofreezedb) Sharded() bool {
+	return true
+}
+
+func (db *nofreezedb) Shard(index uint64) ethdb.KeyValueStore {
+	if db.sharding == nil {
+		return db
+	}
+	return db.sharding.Shard(index)
+}
+
+func (db *nofreezedb) ShardByHash(h common.Hash) ethdb.KeyValueStore {
+	if db.sharding == nil {
+		return db
+	}
+	return db.sharding.ShardByHash(h)
 }
 
 // HasAncient returns an error as we don't have a backing chain freezer.
@@ -164,6 +209,29 @@ func (db *nofreezedb) Sync() error {
 
 func (db *nofreezedb) DiffStore() ethdb.KeyValueStore {
 	return db.diffStore
+}
+
+// Close implements io.Closer, closing both the fast key-value store as well as
+// the slow ancient tables.
+func (frdb *nofreezedb) Close() error {
+	var errs []error
+	if err := frdb.KeyValueStore.Close(); err != nil {
+		errs = append(errs, err)
+	}
+	if frdb.diffStore != nil {
+		if err := frdb.diffStore.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if frdb.sharding != nil {
+		if err := frdb.sharding.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) != 0 {
+		return fmt.Errorf("%v", errs)
+	}
+	return nil
 }
 
 func (db *nofreezedb) SetDiffStore(diff ethdb.KeyValueStore) {
@@ -244,7 +312,7 @@ func resolveChainFreezerDir(ancient string) string {
 // value data store with a freezer moving immutable chain segments into cold
 // storage. The passed ancient indicates the path of root ancient directory
 // where the chain freezer can be opened.
-func NewDatabaseWithFreezer(db ethdb.KeyValueStore, ancient string, namespace string, readonly, disableFreeze, isLastOffset, pruneAncientData bool) (ethdb.Database, error) {
+func NewDatabaseWithFreezer(db ethdb.KeyValueStore, sharding *shardingdb.Database, ancient, namespace string, readonly, disableFreeze, isLastOffset, pruneAncientData bool) (ethdb.Database, error) {
 	var offset uint64
 	// The offset of ancientDB should be handled differently in different scenarios.
 	if isLastOffset {
@@ -266,6 +334,7 @@ func NewDatabaseWithFreezer(db ethdb.KeyValueStore, ancient string, namespace st
 		return &freezerdb{
 			KeyValueStore: db,
 			AncientStore:  frdb,
+			sharding:      sharding,
 		}, nil
 	}
 
@@ -381,6 +450,7 @@ func NewDatabaseWithFreezer(db ethdb.KeyValueStore, ancient string, namespace st
 		ancientRoot:   ancient,
 		KeyValueStore: db,
 		AncientStore:  frdb,
+		sharding:      sharding,
 	}, nil
 }
 
@@ -418,7 +488,12 @@ func NewLevelDBDatabaseWithFreezer(file string, cache int, handles int, ancient 
 	if err != nil {
 		return nil, err
 	}
-	frdb, err := NewDatabaseWithFreezer(kvdb, ancient, namespace, readonly, disableFreeze, isLastOffset, pruneAncientData)
+	log.Info("init sharding database", "shard", shardNum)
+	sharding, err := shardingdb.New(file, cache, handles, namespace, shardNum)
+	if err != nil {
+		return nil, err
+	}
+	frdb, err := NewDatabaseWithFreezer(kvdb, sharding, ancient, namespace, readonly, disableFreeze, isLastOffset, pruneAncientData)
 	if err != nil {
 		kvdb.Close()
 		return nil, err
@@ -511,6 +586,8 @@ func openKeyValueDatabase(o OpenOptions) (ethdb.Database, error) {
 // set on the provided OpenOptions.
 // The passed o.AncientDir indicates the path of root ancient directory where
 // the chain freezer can be opened.
+const shardNum = 2
+
 func Open(o OpenOptions) (ethdb.Database, error) {
 	kvdb, err := openKeyValueDatabase(o)
 	if err != nil {
@@ -519,7 +596,15 @@ func Open(o OpenOptions) (ethdb.Database, error) {
 	if len(o.AncientsDirectory) == 0 {
 		return kvdb, nil
 	}
-	frdb, err := NewDatabaseWithFreezer(kvdb, o.AncientsDirectory, o.Namespace, o.ReadOnly, o.DisableFreeze, o.IsLastOffset, o.PruneAncientData)
+	var sharding *shardingdb.Database
+	if !o.DisableFreeze {
+		log.Info("init sharding database", "shard", shardNum)
+		sharding, err = shardingdb.New(o.Directory, o.Cache, o.Handles/shardNum, o.Namespace, shardNum)
+		if err != nil {
+			return nil, err
+		}
+	}
+	frdb, err := NewDatabaseWithFreezer(kvdb, sharding, o.AncientsDirectory, o.Namespace, o.ReadOnly, o.DisableFreeze, o.IsLastOffset, o.PruneAncientData)
 	if err != nil {
 		kvdb.Close()
 		return nil, err
@@ -785,6 +870,82 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 	return nil
 }
 
+func MigrateSharding(db ethdb.Database, keyPrefix, keyStart []byte) error {
+	sharded := db.Sharded()
+	if !sharded || db == db.Shard(0) {
+		log.Warn("cannot migrate into a un-sharded db!!")
+		return nil
+	}
+	it := db.NewIterator(keyPrefix, keyStart)
+	defer it.Release()
+
+	var (
+		count        int64
+		start        = time.Now()
+		logged       = time.Now()
+		accountTries stat
+		storageTries stat
+		accountSnaps stat
+		storageSnaps stat
+
+		// Totals
+		total common.StorageSize
+	)
+	// Inspect key-value database first.
+	for it.Next() {
+		var (
+			key  = it.Key()
+			val  = it.Value()
+			size = common.StorageSize(len(key) + len(val))
+		)
+		total += size
+		switch {
+		case IsAccountTrieNode(key):
+			accountTries.Add(size)
+			_, p := ResolveAccountTrieNodeKey(key)
+			DeleteAccountTrieNode(db, p)
+			WriteAccountTrieNode(TryShardingByHash(db, common.Hash{}), p, val)
+		case IsStorageTrieNode(key):
+			storageTries.Add(size)
+			_, h, p := ResolveStorageTrieNode(key)
+			DeleteStorageTrieNode(db, h, p)
+			WriteStorageTrieNode(TryShardingByHash(db, h), h, p, val)
+		case bytes.HasPrefix(key, SnapshotAccountPrefix) && len(key) == (len(SnapshotAccountPrefix)+common.HashLength):
+			accountSnaps.Add(size)
+			h := common.BytesToHash(key[len(SnapshotAccountPrefix):])
+			DeleteAccountSnapshot(db, h)
+			WriteAccountSnapshot(TryShardingByHash(db, common.Hash{}), h, val)
+		case bytes.HasPrefix(key, SnapshotStoragePrefix) && len(key) == (len(SnapshotStoragePrefix)+2*common.HashLength):
+			storageSnaps.Add(size)
+			h := common.BytesToHash(key[len(SnapshotAccountPrefix):(len(SnapshotAccountPrefix) + common.HashLength)])
+			s := common.BytesToHash(key[(len(SnapshotAccountPrefix) + common.HashLength):(len(SnapshotAccountPrefix) + 2*common.HashLength)])
+			DeleteStorageSnapshot(db, h, s)
+			WriteStorageSnapshot(TryShardingByHash(db, h), h, s, val)
+		}
+		count++
+		if count%1000 == 0 && time.Since(logged) > 8*time.Second {
+			log.Info("Migrating database", "count", count, "accountTrie", accountTries.Count(),
+				"storageTrie", storageTries.Count(), "accountSnap", accountSnaps.Count(),
+				"storageSnap", storageSnaps.Count(), "elapsed", common.PrettyDuration(time.Since(start)))
+			logged = time.Now()
+		}
+	}
+	// Display the database statistic of key-value store.
+	stats := [][]string{
+		{"Key-Value store", "Path trie account nodes", accountTries.Size(), accountTries.Count()},
+		{"Key-Value store", "Path trie storage nodes", storageTries.Size(), storageTries.Count()},
+		{"Key-Value store", "Account snapshot", accountSnaps.Size(), accountSnaps.Count()},
+		{"Key-Value store", "Storage snapshot", storageSnaps.Size(), storageSnaps.Count()},
+	}
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Database", "Category", "Size", "Items"})
+	table.SetFooter([]string{"", "Total", total.String(), " "})
+	table.AppendBulk(stats)
+	table.Render()
+
+	return nil
+}
+
 // printChainMetadata prints out chain metadata to stderr.
 func printChainMetadata(db ethdb.KeyValueStore) {
 	fmt.Fprintf(os.Stderr, "Chain metadata\n")
@@ -819,4 +980,11 @@ func ReadChainMetadata(db ethdb.KeyValueStore) [][]string {
 		{"fastTxLookupLimit", pp(ReadFastTxLookupLimit(db))},
 	}
 	return data
+}
+
+func TryShardingByHash(db ethdb.Database, h common.Hash) ethdb.KeyValueStore {
+	if !db.Sharded() {
+		return db
+	}
+	return db.ShardByHash(h)
 }

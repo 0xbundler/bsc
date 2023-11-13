@@ -22,6 +22,7 @@
 package remotedb
 
 import (
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -30,6 +31,18 @@ import (
 // Database is a key-value lookup for a remote database via debug_dbGet.
 type Database struct {
 	remote *rpc.Client
+}
+
+func (db *Database) Sharded() bool {
+	return false
+}
+
+func (db *Database) Shard(index uint64) ethdb.KeyValueStore {
+	panic("implement me")
+}
+
+func (db *Database) ShardByHash(h common.Hash) ethdb.KeyValueStore {
+	panic("implement me")
 }
 
 func (db *Database) Has(key []byte) (bool, error) {

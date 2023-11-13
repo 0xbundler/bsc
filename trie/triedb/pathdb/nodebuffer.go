@@ -126,7 +126,7 @@ func (b *nodebuffer) commit(nodes map[common.Hash]map[string]*trienode.Node) tri
 // revert is the reverse operation of commit. It also merges the provided nodes
 // into the nodebuffer, the difference is that the provided node set should
 // revert the changes made by the last state transition.
-func (b *nodebuffer) revert(db ethdb.KeyValueReader, nodes map[common.Hash]map[string]*trienode.Node) error {
+func (b *nodebuffer) revert(db ethdb.Database, nodes map[common.Hash]map[string]*trienode.Node) error {
 	// Short circuit if no embedded state transition to revert.
 	if b.layers == 0 {
 		return errStateUnrecoverable
@@ -157,9 +157,9 @@ func (b *nodebuffer) revert(db ethdb.KeyValueReader, nodes map[common.Hash]map[s
 				// node occurs which is not present in buffer.
 				var nhash common.Hash
 				if owner == (common.Hash{}) {
-					_, nhash = rawdb.ReadAccountTrieNode(db, []byte(path))
+					_, nhash = rawdb.ReadAccountTrieNode(rawdb.TryShardingByHash(db, owner), []byte(path))
 				} else {
-					_, nhash = rawdb.ReadStorageTrieNode(db, owner, []byte(path))
+					_, nhash = rawdb.ReadStorageTrieNode(rawdb.TryShardingByHash(db, owner), owner, []byte(path))
 				}
 				// Ignore the clean node in the case described above.
 				if nhash == n.Hash {
@@ -201,14 +201,14 @@ func (b *nodebuffer) empty() bool {
 
 // setSize sets the buffer size to the provided number, and invokes a flush
 // operation if the current memory usage exceeds the new limit.
-func (b *nodebuffer) setSize(size int, db ethdb.KeyValueStore, clean *fastcache.Cache, id uint64) error {
+func (b *nodebuffer) setSize(size int, db ethdb.Database, clean *fastcache.Cache, id uint64) error {
 	b.limit = uint64(size)
 	return b.flush(db, clean, id, false)
 }
 
 // flush persists the in-memory dirty trie node into the disk if the configured
 // memory threshold is reached. Note, all data must be written atomically.
-func (b *nodebuffer) flush(db ethdb.KeyValueStore, clean *fastcache.Cache, id uint64, force bool) error {
+func (b *nodebuffer) flush(db ethdb.Database, clean *fastcache.Cache, id uint64, force bool) error {
 	if b.size <= b.limit && !force {
 		return nil
 	}
@@ -225,7 +225,11 @@ func (b *nodebuffer) flush(db ethdb.KeyValueStore, clean *fastcache.Cache, id ui
 		// some redundancy is added here.
 		batch = db.NewBatchWithSize(int(float64(b.size) * DefaultBatchRedundancyRate))
 	)
-	nodes := writeNodes(batch, b.nodes, clean)
+	//nodes := writeNodes(batch, b.nodes, clean)
+	nodes, err := writeShardingNodes(db, b.nodes, clean)
+	if err != nil {
+		return err
+	}
 	rawdb.WritePersistentStateID(batch, id)
 
 	// Flush all mutations in a single batch
@@ -270,6 +274,41 @@ func writeNodes(batch ethdb.Batch, nodes map[common.Hash]map[string]*trienode.No
 		total += len(subset)
 	}
 	return total
+}
+
+// writeShardingNodes writes the trie nodes into the provided database batch.
+// Note this function will also inject all the newly written nodes
+// into clean cache.
+func writeShardingNodes(sharding ethdb.Database, nodes map[common.Hash]map[string]*trienode.Node, clean *fastcache.Cache) (total int, err error) {
+	for owner, subset := range nodes {
+		batch := sharding.ShardByHash(owner).NewBatch()
+		for path, n := range subset {
+			if n.IsDeleted() {
+				if owner == (common.Hash{}) {
+					rawdb.DeleteAccountTrieNode(batch, []byte(path))
+				} else {
+					rawdb.DeleteStorageTrieNode(batch, owner, []byte(path))
+				}
+				if clean != nil {
+					clean.Del(cacheKey(owner, []byte(path)))
+				}
+			} else {
+				if owner == (common.Hash{}) {
+					rawdb.WriteAccountTrieNode(batch, []byte(path), n.Blob)
+				} else {
+					rawdb.WriteStorageTrieNode(batch, owner, []byte(path), n.Blob)
+				}
+				if clean != nil {
+					clean.Set(cacheKey(owner, []byte(path)), n.Blob)
+				}
+			}
+		}
+		total += len(subset)
+		if err = batch.Write(); err != nil {
+			return 0, err
+		}
+	}
+	return total, nil
 }
 
 // cacheKey constructs the unique key of clean cache.
