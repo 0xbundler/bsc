@@ -32,6 +32,10 @@ func (t *table) Sharded() bool {
 	return false
 }
 
+func (t *table) ShardNum() uint64 {
+	return 0
+}
+
 func (t *table) Shard(index uint64) ethdb.KeyValueStore {
 	panic("implement me")
 }

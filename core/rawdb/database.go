@@ -51,6 +51,13 @@ func (frdb *freezerdb) Sharded() bool {
 	return true
 }
 
+func (frdb *freezerdb) ShardNum() uint64 {
+	if frdb.sharding == nil {
+		return 0
+	}
+	return frdb.sharding.ShardNum()
+}
+
 func (frdb *freezerdb) Shard(index uint64) ethdb.KeyValueStore {
 	if frdb.sharding == nil {
 		return frdb
@@ -136,6 +143,13 @@ type nofreezedb struct {
 
 func (db *nofreezedb) Sharded() bool {
 	return true
+}
+
+func (db *nofreezedb) ShardNum() uint64 {
+	if db.sharding == nil {
+		return 0
+	}
+	return db.sharding.ShardNum()
 }
 
 func (db *nofreezedb) Shard(index uint64) ethdb.KeyValueStore {
@@ -484,6 +498,7 @@ func NewLevelDBDatabase(file string, cache int, handles int, namespace string, r
 // opened.
 // just used for test now
 func NewLevelDBDatabaseWithFreezer(file string, cache int, handles int, ancient string, namespace string, readonly, disableFreeze, isLastOffset, pruneAncientData bool) (ethdb.Database, error) {
+	handles = handles / (shardNum + 1)
 	kvdb, err := leveldb.New(file, cache, handles, namespace, readonly)
 	if err != nil {
 		return nil, err
@@ -589,22 +604,26 @@ func openKeyValueDatabase(o OpenOptions) (ethdb.Database, error) {
 const shardNum = 2
 
 func Open(o OpenOptions) (ethdb.Database, error) {
-	kvdb, err := openKeyValueDatabase(o)
+	no := o
+	if !no.DisableFreeze {
+		no.Handles = no.Handles / (shardNum + 1)
+	}
+	kvdb, err := openKeyValueDatabase(no)
 	if err != nil {
 		return nil, err
 	}
-	if len(o.AncientsDirectory) == 0 {
+	if len(no.AncientsDirectory) == 0 {
 		return kvdb, nil
 	}
 	var sharding *shardingdb.Database
-	if !o.DisableFreeze {
+	if !no.DisableFreeze {
 		log.Info("init sharding database", "shard", shardNum)
-		sharding, err = shardingdb.New(o.Directory, o.Cache, o.Handles/shardNum, o.Namespace, shardNum)
+		sharding, err = shardingdb.New(no.Directory, no.Cache, no.Handles, no.Namespace, shardNum)
 		if err != nil {
 			return nil, err
 		}
 	}
-	frdb, err := NewDatabaseWithFreezer(kvdb, sharding, o.AncientsDirectory, o.Namespace, o.ReadOnly, o.DisableFreeze, o.IsLastOffset, o.PruneAncientData)
+	frdb, err := NewDatabaseWithFreezer(kvdb, sharding, no.AncientsDirectory, no.Namespace, no.ReadOnly, no.DisableFreeze, no.IsLastOffset, no.PruneAncientData)
 	if err != nil {
 		kvdb.Close()
 		return nil, err
@@ -867,15 +886,179 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 	if unaccounted.size > 0 {
 		log.Error("Database contains unaccounted data", "size", unaccounted.size, "count", unaccounted.count)
 	}
+	showLeveldbStats(db)
+	return nil
+}
+
+func InspectStateDatabase(db ethdb.KeyValueStore, keyPrefix, keyStart []byte) error {
+	it := db.NewIterator(keyPrefix, keyStart)
+	defer it.Release()
+
+	var (
+		count  int64
+		start  = time.Now()
+		logged = time.Now()
+
+		// Key-value store statistics
+		headers         stat
+		bodies          stat
+		receipts        stat
+		tds             stat
+		numHashPairings stat
+		hashNumPairings stat
+		legacyTries     stat
+		stateLookups    stat
+		accountTries    stat
+		storageTries    stat
+		codes           stat
+		txLookups       stat
+		accountSnaps    stat
+		storageSnaps    stat
+		preimages       stat
+		bloomBits       stat
+		cliqueSnaps     stat
+		parliaSnaps     stat
+
+		// Les statistic
+		chtTrieNodes   stat
+		bloomTrieNodes stat
+
+		// Meta- and unaccounted data
+		metadata    stat
+		unaccounted stat
+
+		// Totals
+		total common.StorageSize
+	)
+	// Inspect key-value database first.
+	for it.Next() {
+		var (
+			key  = it.Key()
+			size = common.StorageSize(len(key) + len(it.Value()))
+		)
+		total += size
+		switch {
+		case bytes.HasPrefix(key, headerPrefix) && len(key) == (len(headerPrefix)+8+common.HashLength):
+			headers.Add(size)
+		case bytes.HasPrefix(key, blockBodyPrefix) && len(key) == (len(blockBodyPrefix)+8+common.HashLength):
+			bodies.Add(size)
+		case bytes.HasPrefix(key, blockReceiptsPrefix) && len(key) == (len(blockReceiptsPrefix)+8+common.HashLength):
+			receipts.Add(size)
+		case bytes.HasPrefix(key, headerPrefix) && bytes.HasSuffix(key, headerTDSuffix):
+			tds.Add(size)
+		case bytes.HasPrefix(key, headerPrefix) && bytes.HasSuffix(key, headerHashSuffix):
+			numHashPairings.Add(size)
+		case bytes.HasPrefix(key, headerNumberPrefix) && len(key) == (len(headerNumberPrefix)+common.HashLength):
+			hashNumPairings.Add(size)
+		case IsLegacyTrieNode(key, it.Value()):
+			legacyTries.Add(size)
+		case bytes.HasPrefix(key, stateIDPrefix) && len(key) == len(stateIDPrefix)+common.HashLength:
+			stateLookups.Add(size)
+		case IsAccountTrieNode(key):
+			accountTries.Add(size)
+		case IsStorageTrieNode(key):
+			storageTries.Add(size)
+		case bytes.HasPrefix(key, CodePrefix) && len(key) == len(CodePrefix)+common.HashLength:
+			codes.Add(size)
+		case bytes.HasPrefix(key, txLookupPrefix) && len(key) == (len(txLookupPrefix)+common.HashLength):
+			txLookups.Add(size)
+		case bytes.HasPrefix(key, SnapshotAccountPrefix) && len(key) == (len(SnapshotAccountPrefix)+common.HashLength):
+			accountSnaps.Add(size)
+		case bytes.HasPrefix(key, SnapshotStoragePrefix) && len(key) == (len(SnapshotStoragePrefix)+2*common.HashLength):
+			storageSnaps.Add(size)
+		case bytes.HasPrefix(key, PreimagePrefix) && len(key) == (len(PreimagePrefix)+common.HashLength):
+			preimages.Add(size)
+		case bytes.HasPrefix(key, configPrefix) && len(key) == (len(configPrefix)+common.HashLength):
+			metadata.Add(size)
+		case bytes.HasPrefix(key, genesisPrefix) && len(key) == (len(genesisPrefix)+common.HashLength):
+			metadata.Add(size)
+		case bytes.HasPrefix(key, bloomBitsPrefix) && len(key) == (len(bloomBitsPrefix)+10+common.HashLength):
+			bloomBits.Add(size)
+		case bytes.HasPrefix(key, BloomBitsIndexPrefix):
+			bloomBits.Add(size)
+		case bytes.HasPrefix(key, CliqueSnapshotPrefix) && len(key) == 7+common.HashLength:
+			cliqueSnaps.Add(size)
+		case bytes.HasPrefix(key, ParliaSnapshotPrefix) && len(key) == 7+common.HashLength:
+			parliaSnaps.Add(size)
+		case bytes.HasPrefix(key, ChtTablePrefix) ||
+			bytes.HasPrefix(key, ChtIndexTablePrefix) ||
+			bytes.HasPrefix(key, ChtPrefix): // Canonical hash trie
+			chtTrieNodes.Add(size)
+		case bytes.HasPrefix(key, BloomTrieTablePrefix) ||
+			bytes.HasPrefix(key, BloomTrieIndexPrefix) ||
+			bytes.HasPrefix(key, BloomTriePrefix): // Bloomtrie sub
+			bloomTrieNodes.Add(size)
+		default:
+			var accounted bool
+			for _, meta := range [][]byte{
+				databaseVersionKey, headHeaderKey, headBlockKey, headFastBlockKey,
+				lastPivotKey, fastTrieProgressKey, snapshotDisabledKey, SnapshotRootKey, snapshotJournalKey,
+				snapshotGeneratorKey, snapshotRecoveryKey, txIndexTailKey, fastTxLookupLimitKey,
+				uncleanShutdownKey, badBlockKey, transitionStatusKey, skeletonSyncStatusKey,
+				persistentStateIDKey, trieJournalKey, snapshotSyncStatusKey,
+			} {
+				if bytes.Equal(key, meta) {
+					metadata.Add(size)
+					accounted = true
+					break
+				}
+			}
+			if !accounted {
+				unaccounted.Add(size)
+			}
+		}
+		count++
+		if count%1000 == 0 && time.Since(logged) > 8*time.Second {
+			log.Info("Inspecting database", "count", count, "elapsed", common.PrettyDuration(time.Since(start)))
+			logged = time.Now()
+		}
+	}
+	// Display the database statistic of key-value store.
+	stats := [][]string{
+		{"Key-Value store", "Headers", headers.Size(), headers.Count()},
+		{"Key-Value store", "Bodies", bodies.Size(), bodies.Count()},
+		{"Key-Value store", "Receipt lists", receipts.Size(), receipts.Count()},
+		{"Key-Value store", "Difficulties", tds.Size(), tds.Count()},
+		{"Key-Value store", "Block number->hash", numHashPairings.Size(), numHashPairings.Count()},
+		{"Key-Value store", "Block hash->number", hashNumPairings.Size(), hashNumPairings.Count()},
+		{"Key-Value store", "Transaction index", txLookups.Size(), txLookups.Count()},
+		{"Key-Value store", "Bloombit index", bloomBits.Size(), bloomBits.Count()},
+		{"Key-Value store", "Contract codes", codes.Size(), codes.Count()},
+		{"Key-Value store", "Hash trie nodes", legacyTries.Size(), legacyTries.Count()},
+		{"Key-Value store", "Path trie state lookups", stateLookups.Size(), stateLookups.Count()},
+		{"Key-Value store", "Path trie account nodes", accountTries.Size(), accountTries.Count()},
+		{"Key-Value store", "Path trie storage nodes", storageTries.Size(), storageTries.Count()},
+		{"Key-Value store", "Trie preimages", preimages.Size(), preimages.Count()},
+		{"Key-Value store", "Account snapshot", accountSnaps.Size(), accountSnaps.Count()},
+		{"Key-Value store", "Storage snapshot", storageSnaps.Size(), storageSnaps.Count()},
+		{"Key-Value store", "Clique snapshots", cliqueSnaps.Size(), cliqueSnaps.Count()},
+		{"Key-Value store", "Parlia snapshots", parliaSnaps.Size(), parliaSnaps.Count()},
+		{"Key-Value store", "Singleton metadata", metadata.Size(), metadata.Count()},
+		{"Light client", "CHT trie nodes", chtTrieNodes.Size(), chtTrieNodes.Count()},
+		{"Light client", "Bloom trie nodes", bloomTrieNodes.Size(), bloomTrieNodes.Count()},
+	}
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Database", "Category", "Size", "Items"})
+	table.SetFooter([]string{"", "Total", total.String(), " "})
+	table.AppendBulk(stats)
+	table.Render()
+
+	if unaccounted.size > 0 {
+		log.Error("Database contains unaccounted data", "size", unaccounted.size, "count", unaccounted.count)
+	}
+	showLeveldbStats(db)
 	return nil
 }
 
 func MigrateSharding(db ethdb.Database, keyPrefix, keyStart []byte) error {
 	sharded := db.Sharded()
-	if !sharded || db == db.Shard(0) {
+	if !sharded || db.ShardNum() == 0 {
 		log.Warn("cannot migrate into a un-sharded db!!")
 		return nil
 	}
+	fmt.Println("main db stats....")
+	showLeveldbStats(db)
 	it := db.NewIterator(keyPrefix, keyStart)
 	defer it.Release()
 
@@ -943,7 +1126,63 @@ func MigrateSharding(db ethdb.Database, keyPrefix, keyStart []byte) error {
 	table.AppendBulk(stats)
 	table.Render()
 
+	StatsAndCompact(db)
 	return nil
+}
+
+func StatsAndCompact(db ethdb.Database) {
+	fmt.Println("db stats...", "main db")
+	showLeveldbStats(db)
+	for i := uint64(0); i < db.ShardNum(); i++ {
+		fmt.Println("db stats...", "shard", i)
+		showLeveldbStats(db.Shard(i))
+	}
+
+	fmt.Println("db compacting...", "main db")
+	compactDB(db)
+	for i := uint64(0); i < db.ShardNum(); i++ {
+		fmt.Println("db compacting...", "shard", i)
+		compactDB(db.Shard(i))
+	}
+
+	fmt.Println("db stats...", "main db")
+	showLeveldbStats(db)
+	for i := uint64(0); i < db.ShardNum(); i++ {
+		fmt.Println("db stats...", "shard", i)
+		showLeveldbStats(db.Shard(i))
+	}
+}
+
+func compactDB(db ethdb.KeyValueStore) error {
+	cstart := time.Now()
+	for b := 0x00; b <= 0xf0; b += 0x10 {
+		var (
+			start = []byte{byte(b)}
+			end   = []byte{byte(b + 0x10)}
+		)
+		if b == 0xf0 {
+			end = nil
+		}
+		log.Info("Compacting database", "range", fmt.Sprintf("%#x-%#x", start, end), "elapsed", common.PrettyDuration(time.Since(cstart)))
+		if err := db.Compact(start, end); err != nil {
+			log.Error("Database compaction failed", "error", err)
+			return err
+		}
+	}
+	return nil
+}
+
+func showLeveldbStats(db ethdb.KeyValueStater) {
+	if stats, err := db.Stat("leveldb.stats"); err != nil {
+		log.Warn("Failed to read database stats", "error", err)
+	} else {
+		fmt.Println(stats)
+	}
+	if ioStats, err := db.Stat("leveldb.iostats"); err != nil {
+		log.Warn("Failed to read database iostats", "error", err)
+	} else {
+		fmt.Println(ioStats)
+	}
 }
 
 // printChainMetadata prints out chain metadata to stderr.

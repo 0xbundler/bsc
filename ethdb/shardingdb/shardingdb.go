@@ -17,8 +17,9 @@ type Database struct {
 func New(path string, cache int, handles int, namespace string, shardNum int) (*Database, error) {
 	shards := make([]*leveldb.Database, shardNum)
 	for i := 0; i < shardNum; i++ {
-		shardPath := filepath.Join(path, fmt.Sprintf("shard%04d", i))
-		db, err := leveldb.New(shardPath, cache, handles, namespace, false)
+		shard := fmt.Sprintf("shard%04d", i)
+		shardPath := filepath.Join(path, shard)
+		db, err := leveldb.New(shardPath, cache, handles, shard, false)
 		if err != nil {
 			return nil, err
 		}
@@ -42,6 +43,10 @@ func (db *Database) Shard(index uint64) *leveldb.Database {
 	}
 
 	return db.shards[index]
+}
+
+func (db *Database) ShardNum() uint64 {
+	return uint64(len(db.shards))
 }
 
 func (db *Database) ShardByHash(h common.Hash) *leveldb.Database {

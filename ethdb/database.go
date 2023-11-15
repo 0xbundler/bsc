@@ -195,6 +195,7 @@ type DiffStore interface {
 
 type Sharding interface {
 	Sharded() bool
+	ShardNum() uint64
 	Shard(index uint64) KeyValueStore
 	ShardByHash(h common.Hash) KeyValueStore
 }

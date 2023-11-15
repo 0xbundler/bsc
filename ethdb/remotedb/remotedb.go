@@ -37,6 +37,10 @@ func (db *Database) Sharded() bool {
 	return false
 }
 
+func (db *Database) ShardNum() uint64 {
+	return 0
+}
+
 func (db *Database) Shard(index uint64) ethdb.KeyValueStore {
 	panic("implement me")
 }

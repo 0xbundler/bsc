@@ -70,6 +70,7 @@ func (h *hasher) release() {
 func ReadAccountTrieNode(db ethdb.KeyValueReader, path []byte) ([]byte, common.Hash) {
 	data, err := db.Get(accountTrieNodeKey(path))
 	if err != nil {
+		log.Warn("ReadAccountTrieNode err", "err", err)
 		return nil, common.Hash{}
 	}
 	h := newHasher()
@@ -118,6 +119,7 @@ func DeleteAccountTrieNode(db ethdb.KeyValueWriter, path []byte) {
 func ReadStorageTrieNode(db ethdb.KeyValueReader, accountHash common.Hash, path []byte) ([]byte, common.Hash) {
 	data, err := db.Get(storageTrieNodeKey(accountHash, path))
 	if err != nil {
+		log.Warn("ReadStorageTrieNode err", "err", err)
 		return nil, common.Hash{}
 	}
 	h := newHasher()

@@ -351,7 +351,22 @@ func inspect(ctx *cli.Context) error {
 	db := utils.MakeChainDatabase(ctx, stack, true, false)
 	defer db.Close()
 
-	return rawdb.InspectDatabase(db, prefix, start)
+	fmt.Println("inspect main db...")
+	err := rawdb.InspectDatabase(db, prefix, start)
+	if err != nil {
+		return err
+	}
+	if !db.Sharded() {
+		return nil
+	}
+	for i := uint64(0); i < db.ShardNum(); i++ {
+		fmt.Println("inspect shard db...", i)
+		err = rawdb.InspectStateDatabase(db.Shard(i), prefix, start)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func migrateSharding(ctx *cli.Context) error {
@@ -479,16 +494,7 @@ func dbCompact(ctx *cli.Context) error {
 	db := utils.MakeChainDatabase(ctx, stack, false, false)
 	defer db.Close()
 
-	log.Info("Stats before compaction")
-	showLeveldbStats(db)
-
-	log.Info("Triggering compaction")
-	if err := db.Compact(nil, nil); err != nil {
-		log.Info("Compact err", "error", err)
-		return err
-	}
-	log.Info("Stats after compaction")
-	showLeveldbStats(db)
+	rawdb.StatsAndCompact(db)
 	return nil
 }
 
