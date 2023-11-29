@@ -179,9 +179,11 @@ func ReviveStorageTrie(addr common.Address, tr Trie, proof types.ReviveStoragePr
 	}
 
 	// check if it could get from trie
-	if _, err = tr.GetStorage(addr, key); err != nil {
+	v, err := tr.GetStorage(addr, key)
+	if err != nil {
 		return nil, err
 	}
+	log.Info("ReviveStorageTrie GetStorage", "addr", addr, "key", key, "val", common.BytesToHash(v), "err", err)
 
 	ret := make(map[string][]byte)
 	for _, nub := range nubs {

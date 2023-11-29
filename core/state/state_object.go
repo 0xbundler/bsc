@@ -276,10 +276,10 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		// handle state expiry situation
 		if s.db.EnableExpire() {
 			enc, err = s.getExpirySnapStorage(key)
-			log.Info("GetCommittedState getExpirySnapStorage", "addr", s.address, "key", key, "val", value)
 			if len(enc) > 0 {
 				value.SetBytes(enc)
 			}
+			log.Info("GetCommittedState getExpirySnapStorage", "addr", s.address, "key", key, "val", value, "err", err)
 		} else {
 			enc, err = s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key.Bytes()))
 			if len(enc) > 0 {
@@ -943,7 +943,7 @@ func (s *stateObject) tryReviveState(prefixKey []byte, key common.Hash) ([]byte,
 
 	for k, v := range kvs {
 		s.pendingReviveState[k] = common.BytesToHash(v)
-		log.Info("tryReviveState tryReviveState", "addr", s.address, "key", key, "kvk", k, "kvv", common.BytesToHash(v))
+		log.Info("tryReviveState tryReviveState", "addr", s.address, "key", key, "keccak", hex.EncodeToString(crypto.Keccak256(key[:])), "kvk", hex.EncodeToString([]byte(k)), "kvv", common.BytesToHash(v))
 	}
 
 	getCommittedStorageRemoteMeter.Mark(1)
