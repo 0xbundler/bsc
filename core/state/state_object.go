@@ -24,6 +24,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/log"
+
 	"github.com/ethereum/go-ethereum/core/state/snapshot"
 	"github.com/ethereum/go-ethereum/trie"
 
@@ -236,19 +238,19 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 	getCommittedStorageMeter.Mark(1)
 	// If we have a pending write or clean cached, return that
 	if value, pending := s.pendingStorage[key]; pending {
-		//log.Debug("GetCommittedState pendingStorage", "addr", s.address, "key", key, "val", value)
+		log.Info("GetCommittedState pendingStorage", "addr", s.address, "key", key, "val", value)
 		return value
 	}
 
 	if s.db.EnableExpire() {
 		if revived, revive := s.queryFromReviveState(s.pendingReviveState, key); revive {
-			//log.Debug("GetCommittedState queryFromReviveState", "addr", s.address, "key", key, "val", revived)
+			log.Info("GetCommittedState queryFromReviveState", "addr", s.address, "key", key, "val", revived)
 			return revived
 		}
 	}
 
 	if value, cached := s.getOriginStorage(key); cached {
-		//log.Debug("GetCommittedState getOriginStorage", "addr", s.address, "key", key, "val", value)
+		log.Info("GetCommittedState getOriginStorage", "addr", s.address, "key", key, "val", value)
 		return value
 	}
 
@@ -275,7 +277,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 			enc, err = s.getExpirySnapStorage(key)
 			if len(enc) > 0 {
 				value.SetBytes(enc)
-				//log.Debug("GetCommittedState getExpirySnapStorage", "addr", s.address, "key", key, "val", value)
+				log.Info("GetCommittedState getExpirySnapStorage", "addr", s.address, "key", key, "val", value)
 			}
 		} else {
 			enc, err = s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key.Bytes()))
@@ -285,7 +287,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 					s.db.setError(err)
 				}
 				value.SetBytes(content)
-				//log.Debug("GetCommittedState Storage", "addr", s.address, "key", key, "val", value, "err", err)
+				log.Info("GetCommittedState Storage", "addr", s.address, "key", key, "val", value, "err", err)
 			}
 		}
 		if metrics.EnabledExpensive {
@@ -309,7 +311,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		}
 		var val []byte
 		val, err = tr.GetStorage(s.address, key.Bytes())
-		//log.Debug("GetCommittedState GetStorage", "addr", s.address, "key", key, "val", common.BytesToHash(val), "err", err)
+		log.Info("GetCommittedState GetStorage", "addr", s.address, "key", key, "val", common.BytesToHash(val), "err", err)
 		if metrics.EnabledExpensive {
 			s.db.StorageReads += time.Since(start)
 		}
@@ -318,7 +320,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 			if path, ok := trie.ParseExpiredNodeErr(err); ok {
 				val, err = s.tryReviveState(path, key)
 				getCommittedStorageExpiredMeter.Mark(1)
-				//log.Debug("GetCommittedState tryReviveState", "addr", s.address, "key", key, "val", common.BytesToHash(val), "err", err)
+				log.Info("GetCommittedState tryReviveState", "addr", s.address, "key", key, "val", common.BytesToHash(val), "err", err)
 			} else if err == nil {
 				getCommittedStorageUnexpiredMeter.Mark(1)
 				// TODO(0xbundler): add epoch record cache for prevent frequency access epoch update, may implement later
@@ -940,7 +942,7 @@ func (s *stateObject) tryReviveState(prefixKey []byte, key common.Hash) ([]byte,
 
 	for k, v := range kvs {
 		s.pendingReviveState[k] = common.BytesToHash(v)
-		//log.Debug("tryReviveState tryReviveState", "addr", s.address, "key", key, "kvk", k, "kvv", common.BytesToHash(v))
+		log.Info("tryReviveState tryReviveState", "addr", s.address, "key", key, "kvk", k, "kvv", common.BytesToHash(v))
 	}
 
 	getCommittedStorageRemoteMeter.Mark(1)
