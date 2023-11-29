@@ -18,6 +18,7 @@ package state
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"math/big"
@@ -238,7 +239,7 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 	getCommittedStorageMeter.Mark(1)
 	// If we have a pending write or clean cached, return that
 	if value, pending := s.pendingStorage[key]; pending {
-		log.Info("GetCommittedState pendingStorage", "addr", s.address, "key", key, "val", value)
+		//log.Info("GetCommittedState pendingStorage", "addr", s.address, "key", key, "val", value)
 		return value
 	}
 
@@ -275,9 +276,9 @@ func (s *stateObject) GetCommittedState(key common.Hash) common.Hash {
 		// handle state expiry situation
 		if s.db.EnableExpire() {
 			enc, err = s.getExpirySnapStorage(key)
+			log.Info("GetCommittedState getExpirySnapStorage", "addr", s.address, "key", key, "val", value)
 			if len(enc) > 0 {
 				value.SetBytes(enc)
-				log.Info("GetCommittedState getExpirySnapStorage", "addr", s.address, "key", key, "val", value)
 			}
 		} else {
 			enc, err = s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key.Bytes()))
@@ -952,6 +953,7 @@ func (s *stateObject) tryReviveState(prefixKey []byte, key common.Hash) ([]byte,
 
 func (s *stateObject) getExpirySnapStorage(key common.Hash) ([]byte, error) {
 	enc, err := s.db.snap.Storage(s.addrHash, crypto.Keccak256Hash(key.Bytes()))
+	log.Info("getExpirySnapStorage Storage", "addr", s.address, "key", key, "enc", hex.EncodeToString(enc), "err", err)
 	if err != nil {
 		return nil, err
 	}
