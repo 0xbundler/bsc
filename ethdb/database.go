@@ -19,8 +19,15 @@ package ethdb
 
 import (
 	"io"
+	"os"
+	"path/filepath"
 
 	"github.com/ethereum/go-ethereum/common"
+)
+
+const (
+	DBPebble  = "pebble"
+	DBLeveldb = "leveldb"
 )
 
 // KeyValueReader wraps the Has and Get method of a backing data store.
@@ -213,4 +220,20 @@ type Database interface {
 	Snapshotter
 	Sharding
 	io.Closer
+}
+
+// HasPreexistingDb checks the given data directory whether a database is already
+// instantiated at that location, and if so, returns the type of database (or the
+// empty string).
+func HasPreexistingDb(path string) string {
+	if _, err := os.Stat(filepath.Join(path, "CURRENT")); err != nil {
+		return "" // No pre-existing db
+	}
+	if matches, err := filepath.Glob(filepath.Join(path, "OPTIONS*")); len(matches) > 0 || err != nil {
+		if err != nil {
+			panic(err) // only possible if the pattern is malformed
+		}
+		return DBPebble
+	}
+	return DBLeveldb
 }

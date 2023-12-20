@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -504,7 +503,7 @@ func NewLevelDBDatabaseWithFreezer(file string, cache int, handles int, ancient 
 		return nil, err
 	}
 	log.Info("init sharding database", "shard", shardNum)
-	sharding, err := shardingdb.New(file, cache, handles, namespace, shardNum)
+	sharding, err := shardingdb.New(file, cache, handles, namespace, shardNum, "")
 	if err != nil {
 		return nil, err
 	}
@@ -524,27 +523,6 @@ func NewPebbleDBDatabase(file string, cache int, handles int, namespace string, 
 		return nil, err
 	}
 	return NewDatabase(db), nil
-}
-
-const (
-	dbPebble  = "pebble"
-	dbLeveldb = "leveldb"
-)
-
-// hasPreexistingDb checks the given data directory whether a database is already
-// instantiated at that location, and if so, returns the type of database (or the
-// empty string).
-func hasPreexistingDb(path string) string {
-	if _, err := os.Stat(filepath.Join(path, "CURRENT")); err != nil {
-		return "" // No pre-existing db
-	}
-	if matches, err := filepath.Glob(filepath.Join(path, "OPTIONS*")); len(matches) > 0 || err != nil {
-		if err != nil {
-			panic(err) // only possible if the pattern is malformed
-		}
-		return dbPebble
-	}
-	return dbLeveldb
 }
 
 // OpenOptions contains the options to apply when opening a database.
@@ -571,20 +549,20 @@ type OpenOptions struct {
 //	db is existent     |  from db         |  specified type (if compatible)
 func openKeyValueDatabase(o OpenOptions) (ethdb.Database, error) {
 	// Reject any unsupported database type
-	if len(o.Type) != 0 && o.Type != dbLeveldb && o.Type != dbPebble {
+	if len(o.Type) != 0 && o.Type != ethdb.DBLeveldb && o.Type != ethdb.DBPebble {
 		return nil, fmt.Errorf("unknown db.engine %v", o.Type)
 	}
 	// Retrieve any pre-existing database's type and use that or the requested one
 	// as long as there's no conflict between the two types
-	existingDb := hasPreexistingDb(o.Directory)
+	existingDb := ethdb.HasPreexistingDb(o.Directory)
 	if len(existingDb) != 0 && len(o.Type) != 0 && o.Type != existingDb {
 		return nil, fmt.Errorf("db.engine choice was %v but found pre-existing %v database in specified data directory", o.Type, existingDb)
 	}
-	if o.Type == dbPebble || existingDb == dbPebble {
+	if o.Type == ethdb.DBPebble || existingDb == ethdb.DBPebble {
 		log.Info("Using pebble as the backing database")
 		return NewPebbleDBDatabase(o.Directory, o.Cache, o.Handles, o.Namespace, o.ReadOnly)
 	}
-	if o.Type == dbLeveldb || existingDb == dbLeveldb {
+	if o.Type == ethdb.DBLeveldb || existingDb == ethdb.DBLeveldb {
 		log.Info("Using leveldb as the backing database")
 		return NewLevelDBDatabase(o.Directory, o.Cache, o.Handles, o.Namespace, o.ReadOnly)
 	}
@@ -617,8 +595,8 @@ func Open(o OpenOptions) (ethdb.Database, error) {
 	}
 	var sharding *shardingdb.Database
 	if !no.DisableFreeze {
-		log.Info("init sharding database", "shard", shardNum)
-		sharding, err = shardingdb.New(no.Directory, no.Cache, no.Handles, no.Namespace, shardNum)
+		log.Info("init sharding database in Open", "shard", shardNum)
+		sharding, err = shardingdb.New(no.Directory, no.Cache, no.Handles, no.Namespace, shardNum, no.Type)
 		if err != nil {
 			return nil, err
 		}
