@@ -585,6 +585,7 @@ func Open(o OpenOptions) (ethdb.Database, error) {
 	no := o
 	if !no.DisableFreeze {
 		no.Handles = no.Handles / (shardNum + 1)
+		no.Cache = no.Cache / (shardNum + 1)
 	}
 	kvdb, err := openKeyValueDatabase(no)
 	if err != nil {
