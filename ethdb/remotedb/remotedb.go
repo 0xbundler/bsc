@@ -49,6 +49,10 @@ func (db *Database) ShardByHash(h common.Hash) ethdb.KeyValueStore {
 	panic("implement me")
 }
 
+func (db *Database) ShardIndexByHash(h common.Hash) uint64 {
+	panic("implement me")
+}
+
 func (db *Database) Has(key []byte) (bool, error) {
 	if _, err := db.Get(key); err != nil {
 		return false, nil

@@ -44,6 +44,10 @@ func (t *table) ShardByHash(h common.Hash) ethdb.KeyValueStore {
 	panic("implement me")
 }
 
+func (t *table) ShardIndexByHash(h common.Hash) uint64 {
+	panic("implement me")
+}
+
 // NewTable returns a database object that prefixes all keys with a given string.
 func NewTable(db ethdb.Database, prefix string) ethdb.Database {
 	return &table{

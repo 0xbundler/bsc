@@ -95,6 +95,7 @@ Remove blockchain and state databases`,
 		ArgsUsage: "<prefix> <start>",
 		Flags: flags.Merge([]cli.Flag{
 			utils.SyncModeFlag,
+			utils.CacheFlag,
 		}, utils.NetworkFlags, utils.DatabasePathFlags),
 		Usage:       "Migrate the range state kv into sharding",
 		Description: `Migrate the range state kv into sharding`,
@@ -370,34 +371,13 @@ func inspect(ctx *cli.Context) error {
 }
 
 func migrateSharding(ctx *cli.Context) error {
-	var (
-		prefix []byte
-		start  []byte
-	)
-	if ctx.NArg() > 2 {
-		return fmt.Errorf("max 2 arguments: %v", ctx.Command.ArgsUsage)
-	}
-	if ctx.NArg() >= 1 {
-		if d, err := hexutil.Decode(ctx.Args().Get(0)); err != nil {
-			return fmt.Errorf("failed to hex-decode 'prefix': %v", err)
-		} else {
-			prefix = d
-		}
-	}
-	if ctx.NArg() >= 2 {
-		if d, err := hexutil.Decode(ctx.Args().Get(1)); err != nil {
-			return fmt.Errorf("failed to hex-decode 'start': %v", err)
-		} else {
-			start = d
-		}
-	}
 	stack, _ := makeConfigNode(ctx)
 	defer stack.Close()
 
 	db := utils.MakeChainDatabase(ctx, stack, false, false)
 	defer db.Close()
 
-	return rawdb.MigrateSharding(db, prefix, start)
+	return rawdb.MigrateSharding(db, nil, nil)
 }
 
 func ancientInspect(ctx *cli.Context) error {

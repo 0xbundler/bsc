@@ -205,6 +205,7 @@ type Sharding interface {
 	ShardNum() uint64
 	Shard(index uint64) KeyValueStore
 	ShardByHash(h common.Hash) KeyValueStore
+	ShardIndexByHash(h common.Hash) uint64
 }
 
 // Database contains all the methods required by the high level database to not

@@ -47,28 +47,35 @@ type freezerdb struct {
 }
 
 func (frdb *freezerdb) Sharded() bool {
-	return true
+	return frdb.sharding != nil
 }
 
 func (frdb *freezerdb) ShardNum() uint64 {
 	if frdb.sharding == nil {
-		return 0
+		panic("you are using a non-shard db")
 	}
 	return frdb.sharding.ShardNum()
 }
 
 func (frdb *freezerdb) Shard(index uint64) ethdb.KeyValueStore {
 	if frdb.sharding == nil {
-		return frdb
+		panic("you are using a non-shard db")
 	}
 	return frdb.sharding.Shard(index)
 }
 
 func (frdb *freezerdb) ShardByHash(h common.Hash) ethdb.KeyValueStore {
 	if frdb.sharding == nil {
-		return frdb
+		panic("you are using a non-shard db")
 	}
 	return frdb.sharding.ShardByHash(h)
+}
+
+func (frdb *freezerdb) ShardIndexByHash(h common.Hash) uint64 {
+	if frdb.sharding == nil {
+		panic("you are using a non-shard db")
+	}
+	return frdb.sharding.ShardIndexByHash(h)
 }
 
 // AncientDatadir returns the path of root ancient directory.
@@ -141,28 +148,35 @@ type nofreezedb struct {
 }
 
 func (db *nofreezedb) Sharded() bool {
-	return true
+	return db.sharding != nil
 }
 
 func (db *nofreezedb) ShardNum() uint64 {
 	if db.sharding == nil {
-		return 0
+		panic("you are using a non-shard db")
 	}
 	return db.sharding.ShardNum()
 }
 
 func (db *nofreezedb) Shard(index uint64) ethdb.KeyValueStore {
 	if db.sharding == nil {
-		return db
+		panic("you are using a non-shard db")
 	}
 	return db.sharding.Shard(index)
 }
 
 func (db *nofreezedb) ShardByHash(h common.Hash) ethdb.KeyValueStore {
 	if db.sharding == nil {
-		return db
+		panic("you are using a non-shard db")
 	}
 	return db.sharding.ShardByHash(h)
+}
+
+func (db *nofreezedb) ShardIndexByHash(h common.Hash) uint64 {
+	if db.sharding == nil {
+		panic("you are using a non-shard db")
+	}
+	return db.sharding.ShardIndexByHash(h)
 }
 
 // HasAncient returns an error as we don't have a backing chain freezer.
@@ -1052,6 +1066,10 @@ func MigrateSharding(db ethdb.Database, keyPrefix, keyStart []byte) error {
 
 		// Totals
 		total common.StorageSize
+
+		// batch
+		srcBatch       = db.NewBatch()
+		shardingBatchs = make([]ethdb.Batch, db.ShardNum())
 	)
 	// Inspect key-value database first.
 	for it.Next() {
@@ -1065,24 +1083,40 @@ func MigrateSharding(db ethdb.Database, keyPrefix, keyStart []byte) error {
 		case IsAccountTrieNode(key):
 			accountTries.Add(size)
 			_, p := ResolveAccountTrieNodeKey(key)
-			DeleteAccountTrieNode(db, p)
-			WriteAccountTrieNode(TryShardingByHash(db, common.Hash{}), p, val)
+			DeleteAccountTrieNode(srcBatch, p)
+			idx := db.ShardIndexByHash(common.Hash{})
+			if shardingBatchs[idx] == nil {
+				shardingBatchs[idx] = db.Shard(idx).NewBatch()
+			}
+			WriteAccountTrieNode(shardingBatchs[idx], p, val)
 		case IsStorageTrieNode(key):
 			storageTries.Add(size)
 			_, h, p := ResolveStorageTrieNode(key)
-			DeleteStorageTrieNode(db, h, p)
-			WriteStorageTrieNode(TryShardingByHash(db, h), h, p, val)
+			DeleteStorageTrieNode(srcBatch, h, p)
+			idx := db.ShardIndexByHash(h)
+			if shardingBatchs[idx] == nil {
+				shardingBatchs[idx] = db.Shard(idx).NewBatch()
+			}
+			WriteStorageTrieNode(shardingBatchs[idx], h, p, val)
 		case bytes.HasPrefix(key, SnapshotAccountPrefix) && len(key) == (len(SnapshotAccountPrefix)+common.HashLength):
 			accountSnaps.Add(size)
 			h := common.BytesToHash(key[len(SnapshotAccountPrefix):])
-			DeleteAccountSnapshot(db, h)
-			WriteAccountSnapshot(TryShardingByHash(db, common.Hash{}), h, val)
+			DeleteAccountSnapshot(srcBatch, h)
+			idx := db.ShardIndexByHash(common.Hash{})
+			if shardingBatchs[idx] == nil {
+				shardingBatchs[idx] = db.Shard(idx).NewBatch()
+			}
+			WriteAccountSnapshot(shardingBatchs[idx], h, val)
 		case bytes.HasPrefix(key, SnapshotStoragePrefix) && len(key) == (len(SnapshotStoragePrefix)+2*common.HashLength):
 			storageSnaps.Add(size)
 			h := common.BytesToHash(key[len(SnapshotAccountPrefix):(len(SnapshotAccountPrefix) + common.HashLength)])
 			s := common.BytesToHash(key[(len(SnapshotAccountPrefix) + common.HashLength):(len(SnapshotAccountPrefix) + 2*common.HashLength)])
-			DeleteStorageSnapshot(db, h, s)
-			WriteStorageSnapshot(TryShardingByHash(db, h), h, s, val)
+			DeleteStorageSnapshot(srcBatch, h, s)
+			idx := db.ShardIndexByHash(h)
+			if shardingBatchs[idx] == nil {
+				shardingBatchs[idx] = db.Shard(idx).NewBatch()
+			}
+			WriteStorageSnapshot(shardingBatchs[idx], h, s, val)
 		}
 		count++
 		if count%1000 == 0 && time.Since(logged) > 8*time.Second {
@@ -1090,6 +1124,42 @@ func MigrateSharding(db ethdb.Database, keyPrefix, keyStart []byte) error {
 				"storageTrie", storageTries.Count(), "accountSnap", accountSnaps.Count(),
 				"storageSnap", storageSnaps.Count(), "elapsed", common.PrettyDuration(time.Since(start)))
 			logged = time.Now()
+		}
+		// if src touch threshold, save sharding batches first, then delete itself
+		if srcBatch.ValueSize() > ethdb.IdealBatchSize {
+			for i, b := range shardingBatchs {
+				if b == nil {
+					continue
+				}
+				if b.ValueSize() > 0 {
+					if err := b.Write(); err != nil {
+						log.Error("shard batch write err", "shard", i, "err", err)
+					}
+					b.Reset()
+				}
+			}
+			if err := srcBatch.Write(); err != nil {
+				log.Error("src batch write err", "err", err)
+			}
+			srcBatch.Reset()
+		}
+	}
+
+	if srcBatch.ValueSize() > 0 {
+		if err := srcBatch.Write(); err != nil {
+			log.Error("src batch write err", "err", err)
+		}
+		srcBatch.Reset()
+	}
+	for i, b := range shardingBatchs {
+		if b == nil {
+			continue
+		}
+		if b.ValueSize() > 0 {
+			if err := b.Write(); err != nil {
+				log.Error("shard batch write err", "shard", i, "err", err)
+			}
+			b.Reset()
 		}
 	}
 	// Display the database statistic of key-value store.
@@ -1202,7 +1272,7 @@ func ReadChainMetadata(db ethdb.KeyValueStore) [][]string {
 
 func TryShardingByHash(db ethdb.Database, h common.Hash) ethdb.KeyValueStore {
 	if !db.Sharded() {
-		return db
+		panic("you are using a non-shard db")
 	}
 	return db.ShardByHash(h)
 }

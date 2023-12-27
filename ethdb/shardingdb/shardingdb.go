@@ -63,6 +63,9 @@ func (db *Database) ShardNum() uint64 {
 }
 
 func (db *Database) ShardByHash(h common.Hash) ethdb.KeyValueStore {
-	index := binary.BigEndian.Uint64(h[len(h)-8:]) % uint64(len(db.shards))
-	return db.Shard(index)
+	return db.Shard(db.ShardIndexByHash(h))
+}
+
+func (db *Database) ShardIndexByHash(h common.Hash) uint64 {
+	return binary.BigEndian.Uint64(h[len(h)-8:]) % uint64(len(db.shards))
 }
