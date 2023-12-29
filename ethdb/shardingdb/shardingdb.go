@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/ethereum/go-ethereum/log"
+
 	"github.com/ethereum/go-ethereum/ethdb/pebble"
 
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -14,11 +16,17 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb/leveldb"
 )
 
+const minShardingCache = 4000
+
 type Database struct {
 	shards []ethdb.KeyValueStore
 }
 
 func New(path string, cache int, handles int, namespace string, shardNum int, t string) (*Database, error) {
+	if cache < minShardingCache {
+		log.Warn("sharding cache is too low", "resize", minShardingCache, "actual", cache)
+		cache = minShardingCache
+	}
 	shards := make([]ethdb.KeyValueStore, shardNum)
 	for i := 0; i < shardNum; i++ {
 		shard := fmt.Sprintf("shard%04d", i)
