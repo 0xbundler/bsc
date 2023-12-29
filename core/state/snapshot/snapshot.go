@@ -179,7 +179,7 @@ type Config struct {
 // cheap iteration of the account/storage tries for sync aid.
 type Tree struct {
 	config   Config                   // Snapshots configurations
-	diskdb   ethdb.Database           // Persistent database to store the snapshot
+	diskdb   ethdb.KeyValueStore      // Persistent database to store the snapshot
 	triedb   *trie.Database           // In-memory cache to access the trie through
 	layers   map[common.Hash]snapshot // Collection of all known layers
 	lock     sync.RWMutex
@@ -205,7 +205,7 @@ type Tree struct {
 //     state trie.
 //   - otherwise, the entire snapshot is considered invalid and will be recreated on
 //     a background thread.
-func New(config Config, diskdb ethdb.Database, triedb *trie.Database, root common.Hash, cap int, withoutTrie bool) (*Tree, error) {
+func New(config Config, diskdb ethdb.KeyValueStore, triedb *trie.Database, root common.Hash, cap int, withoutTrie bool) (*Tree, error) {
 	snap := &Tree{
 		config:   config,
 		diskdb:   diskdb,
@@ -569,7 +569,6 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 	base.stale = true
 	base.lock.Unlock()
 
-	accBatch := rawdb.TryShardingByHash(base.diskdb, common.Hash{}).NewBatch()
 	// Destroy all the destructed accounts from the database
 	for hash := range bottom.destructSet {
 		// Skip any account not covered yet by the snapshot
@@ -577,34 +576,27 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 			continue
 		}
 		// Remove all storage slots
-		rawdb.DeleteAccountSnapshot(accBatch, hash)
+		rawdb.DeleteAccountSnapshot(batch, hash)
 		base.cache.Set(hash[:], nil)
 
-		stBatch := rawdb.TryShardingByHash(base.diskdb, hash).NewBatch()
-		it := rawdb.IterateStorageSnapshots(rawdb.TryShardingByHash(base.diskdb, hash), hash)
+		it := rawdb.IterateStorageSnapshots(base.diskdb, hash)
 		for it.Next() {
 			key := it.Key()
-			stBatch.Delete(key)
+			batch.Delete(key)
 			base.cache.Del(key[1:])
 			snapshotFlushStorageItemMeter.Mark(1)
 
 			// Ensure we don't delete too much data blindly (contract can be
 			// huge). It's ok to flush, the root will go missing in case of a
 			// crash and we'll detect and regenerate the snapshot.
-			if stBatch.ValueSize() > ethdb.IdealBatchSize {
-				if err := stBatch.Write(); err != nil {
+			if batch.ValueSize() > ethdb.IdealBatchSize {
+				if err := batch.Write(); err != nil {
 					log.Crit("Failed to write storage deletions", "err", err)
 				}
-				stBatch.Reset()
+				batch.Reset()
 			}
 		}
 		it.Release()
-		if stBatch.ValueSize() > 0 {
-			if err := stBatch.Write(); err != nil {
-				log.Crit("Failed to write storage deletions", "err", err)
-			}
-			stBatch.Reset()
-		}
 	}
 	// Push all updated accounts into the database
 	for hash, data := range bottom.accountData {
@@ -613,7 +605,7 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 			continue
 		}
 		// Push the account to disk
-		rawdb.WriteAccountSnapshot(accBatch, hash, data)
+		rawdb.WriteAccountSnapshot(batch, hash, data)
 		base.cache.Set(hash[:], data)
 		snapshotCleanAccountWriteMeter.Mark(int64(len(data)))
 
@@ -623,18 +615,12 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 		// Ensure we don't write too much data blindly. It's ok to flush, the
 		// root will go missing in case of a crash and we'll detect and regen
 		// the snapshot.
-		if accBatch.ValueSize() > ethdb.IdealBatchSize {
-			if err := accBatch.Write(); err != nil {
+		if batch.ValueSize() > ethdb.IdealBatchSize {
+			if err := batch.Write(); err != nil {
 				log.Crit("Failed to write storage deletions", "err", err)
 			}
-			accBatch.Reset()
+			batch.Reset()
 		}
-	}
-	if accBatch.ValueSize() > 0 {
-		if err := accBatch.Write(); err != nil {
-			log.Crit("Failed to write storage deletions", "err", err)
-		}
-		accBatch.Reset()
 	}
 	// Push all the storage slots into the database
 	for accountHash, storage := range bottom.storageData {
@@ -645,25 +631,21 @@ func diffToDisk(bottom *diffLayer) *diskLayer {
 		// Generation might be mid-account, track that case too
 		midAccount := base.genMarker != nil && bytes.Equal(accountHash[:], base.genMarker[:common.HashLength])
 
-		stBatch := rawdb.TryShardingByHash(base.diskdb, accountHash).NewBatch()
 		for storageHash, data := range storage {
 			// Skip any slot not covered yet by the snapshot
 			if midAccount && bytes.Compare(storageHash[:], base.genMarker[common.HashLength:]) > 0 {
 				continue
 			}
 			if len(data) > 0 {
-				rawdb.WriteStorageSnapshot(stBatch, accountHash, storageHash, data)
+				rawdb.WriteStorageSnapshot(batch, accountHash, storageHash, data)
 				base.cache.Set(append(accountHash[:], storageHash[:]...), data)
 				snapshotCleanStorageWriteMeter.Mark(int64(len(data)))
 			} else {
-				rawdb.DeleteStorageSnapshot(stBatch, accountHash, storageHash)
+				rawdb.DeleteStorageSnapshot(batch, accountHash, storageHash)
 				base.cache.Set(append(accountHash[:], storageHash[:]...), nil)
 			}
 			snapshotFlushStorageItemMeter.Mark(1)
 			snapshotFlushStorageSizeMeter.Mark(int64(len(data)))
-		}
-		if err := stBatch.Write(); err != nil {
-			log.Crit("Failed to write storage deletions", "err", err)
 		}
 	}
 	// Update the snapshot block marker and write any remainder data

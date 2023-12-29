@@ -1098,25 +1098,6 @@ func MigrateSharding(db ethdb.Database, keyPrefix, keyStart []byte) error {
 				shardingBatchs[idx] = db.Shard(idx).NewBatch()
 			}
 			WriteStorageTrieNode(shardingBatchs[idx], h, p, val)
-		case bytes.HasPrefix(key, SnapshotAccountPrefix) && len(key) == (len(SnapshotAccountPrefix)+common.HashLength):
-			accountSnaps.Add(size)
-			h := common.BytesToHash(key[len(SnapshotAccountPrefix):])
-			DeleteAccountSnapshot(srcBatch, h)
-			idx := db.ShardIndexByHash(common.Hash{})
-			if shardingBatchs[idx] == nil {
-				shardingBatchs[idx] = db.Shard(idx).NewBatch()
-			}
-			WriteAccountSnapshot(shardingBatchs[idx], h, val)
-		case bytes.HasPrefix(key, SnapshotStoragePrefix) && len(key) == (len(SnapshotStoragePrefix)+2*common.HashLength):
-			storageSnaps.Add(size)
-			h := common.BytesToHash(key[len(SnapshotAccountPrefix):(len(SnapshotAccountPrefix) + common.HashLength)])
-			s := common.BytesToHash(key[(len(SnapshotAccountPrefix) + common.HashLength):(len(SnapshotAccountPrefix) + 2*common.HashLength)])
-			DeleteStorageSnapshot(srcBatch, h, s)
-			idx := db.ShardIndexByHash(h)
-			if shardingBatchs[idx] == nil {
-				shardingBatchs[idx] = db.Shard(idx).NewBatch()
-			}
-			WriteStorageSnapshot(shardingBatchs[idx], h, s, val)
 		}
 		count++
 		if count%1000 == 0 && time.Since(logged) > 8*time.Second {
