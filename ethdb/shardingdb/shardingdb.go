@@ -16,7 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb/leveldb"
 )
 
-const minShardingCache = 4000
+const minShardingCache = 7000
 
 type Database struct {
 	shards []ethdb.KeyValueStore
