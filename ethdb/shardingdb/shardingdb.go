@@ -16,16 +16,14 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb/leveldb"
 )
 
-const minShardingCache = 4000
-
 type Database struct {
 	shards []ethdb.KeyValueStore
 }
 
 func New(path string, cache int, handles int, namespace string, shardNum int, t string) (*Database, error) {
-	if cache < minShardingCache {
-		log.Warn("sharding cache is too low", "resize", minShardingCache, "actual", cache)
-		cache = minShardingCache
+	if cache < ethdb.MinDatabaseCache {
+		log.Warn("sharding cache is too low", "resize", ethdb.MinDatabaseCache, "actual", cache)
+		cache = ethdb.MinDatabaseCache
 	}
 	shards := make([]ethdb.KeyValueStore, shardNum)
 	for i := 0; i < shardNum; i++ {

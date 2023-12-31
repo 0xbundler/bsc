@@ -600,6 +600,10 @@ func Open(o OpenOptions) (ethdb.Database, error) {
 	if !no.DisableFreeze {
 		no.Handles = no.Handles / (shardNum + 1)
 		no.Cache = no.Cache / (shardNum + 1)
+		if no.Cache < ethdb.MinDatabaseCache {
+			log.Warn("database cache is too low", "resize", ethdb.MinDatabaseCache, "actual", no.Cache)
+			no.Cache = ethdb.MinDatabaseCache
+		}
 	}
 	kvdb, err := openKeyValueDatabase(no)
 	if err != nil {
