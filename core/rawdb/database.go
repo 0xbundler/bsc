@@ -593,7 +593,7 @@ func openKeyValueDatabase(o OpenOptions) (ethdb.Database, error) {
 // set on the provided OpenOptions.
 // The passed o.AncientDir indicates the path of root ancient directory where
 // the chain freezer can be opened.
-const shardNum = 2
+const shardNum = 1
 
 func Open(o OpenOptions) (ethdb.Database, error) {
 	no := o

@@ -29,7 +29,7 @@ const (
 	DBPebble  = "pebble"
 	DBLeveldb = "leveldb"
 
-	MinDatabaseCache = 4000
+	MinDatabaseCache = 1000
 )
 
 // KeyValueReader wraps the Has and Get method of a backing data store.
