@@ -596,31 +596,37 @@ func openKeyValueDatabase(o OpenOptions) (ethdb.Database, error) {
 const shardNum = 1
 
 func Open(o OpenOptions) (ethdb.Database, error) {
-	no := o
-	if !no.DisableFreeze {
-		no.Handles = no.Handles / (shardNum + 1)
-		no.Cache = no.Cache / (shardNum + 1)
-		if no.Cache < ethdb.MinDatabaseCache {
-			log.Warn("database cache is too low", "resize", ethdb.MinDatabaseCache, "actual", no.Cache)
-			no.Cache = ethdb.MinDatabaseCache
-		}
+	// reset sharding option
+	shardOpt := o
+	shardOpt.Handles = int(float64(o.Handles) * 0.6)
+	shardOpt.Cache = int(float64(o.Cache) * 0.6)
+	if shardOpt.Cache < ethdb.MinDatabaseCache {
+		log.Warn("database cache is too low", "resize", ethdb.MinDatabaseCache, "actual", shardOpt.Cache)
+		shardOpt.Cache = ethdb.MinDatabaseCache
 	}
-	kvdb, err := openKeyValueDatabase(no)
+	log.Info("init sharding database in Open", "shard", shardNum)
+	sharding, err := shardingdb.New(shardOpt.Directory, shardOpt.Cache, shardOpt.Handles, shardOpt.Namespace, shardNum, shardOpt.Type)
 	if err != nil {
 		return nil, err
 	}
-	if len(no.AncientsDirectory) == 0 {
+
+	// reset maindb option
+	mainOpt := o
+	mainOpt.Handles = int(float64(o.Handles) * 0.5)
+	mainOpt.Cache = int(float64(o.Cache) * 0.5)
+	if mainOpt.Cache < ethdb.MinDatabaseCache {
+		log.Warn("database cache is too low", "resize", ethdb.MinDatabaseCache, "actual", mainOpt.Cache)
+		mainOpt.Cache = ethdb.MinDatabaseCache
+	}
+	kvdb, err := openKeyValueDatabase(mainOpt)
+	if err != nil {
+		return nil, err
+	}
+	if len(mainOpt.AncientsDirectory) == 0 {
 		return kvdb, nil
 	}
-	var sharding *shardingdb.Database
-	if !no.DisableFreeze {
-		log.Info("init sharding database in Open", "shard", shardNum)
-		sharding, err = shardingdb.New(no.Directory, no.Cache, no.Handles, no.Namespace, shardNum, no.Type)
-		if err != nil {
-			return nil, err
-		}
-	}
-	frdb, err := NewDatabaseWithFreezer(kvdb, sharding, no.AncientsDirectory, no.Namespace, no.ReadOnly, no.DisableFreeze, no.IsLastOffset, no.PruneAncientData)
+
+	frdb, err := NewDatabaseWithFreezer(kvdb, sharding, mainOpt.AncientsDirectory, mainOpt.Namespace, mainOpt.ReadOnly, mainOpt.DisableFreeze, mainOpt.IsLastOffset, mainOpt.PruneAncientData)
 	if err != nil {
 		kvdb.Close()
 		return nil, err

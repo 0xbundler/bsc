@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/ethereum/go-ethereum/log"
-
 	"github.com/ethereum/go-ethereum/ethdb/pebble"
 
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -21,10 +19,6 @@ type Database struct {
 }
 
 func New(path string, cache int, handles int, namespace string, shardNum int, t string) (*Database, error) {
-	if cache < ethdb.MinDatabaseCache {
-		log.Warn("sharding cache is too low", "resize", ethdb.MinDatabaseCache, "actual", cache)
-		cache = ethdb.MinDatabaseCache
-	}
 	shards := make([]ethdb.KeyValueStore, shardNum)
 	for i := 0; i < shardNum; i++ {
 		shard := fmt.Sprintf("shard%04d", i)
