@@ -598,7 +598,7 @@ const shardNum = 2
 func Open(o OpenOptions) (ethdb.Database, error) {
 	// reset sharding option
 	shardOpt := o
-	shardOpt.Handles = int(float64(o.Handles) * 0.5 / shardNum)
+	shardOpt.Handles = int(float64(o.Handles) / (shardNum + 1))
 	shardOpt.Cache = int(float64(o.Cache) * 0.5 / shardNum)
 	if shardOpt.Cache < ethdb.MinDatabaseCache {
 		log.Warn("database cache is too low", "resize", ethdb.MinDatabaseCache, "actual", shardOpt.Cache)
@@ -612,7 +612,7 @@ func Open(o OpenOptions) (ethdb.Database, error) {
 
 	// reset maindb option
 	mainOpt := o
-	mainOpt.Handles = int(float64(o.Handles) * 0.5)
+	mainOpt.Handles = int(float64(o.Handles) / (shardNum + 1))
 	mainOpt.Cache = int(float64(o.Cache) * 0.5)
 	if mainOpt.Cache < ethdb.MinDatabaseCache {
 		log.Warn("database cache is too low", "resize", ethdb.MinDatabaseCache, "actual", mainOpt.Cache)
