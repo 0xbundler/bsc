@@ -22,7 +22,6 @@
 package remotedb
 
 import (
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -45,11 +44,11 @@ func (db *Database) Shard(index uint64) ethdb.KeyValueStore {
 	panic("implement me")
 }
 
-func (db *Database) ShardByHash(h common.Hash) ethdb.KeyValueStore {
+func (db *Database) ShardByTriePath(path []byte) ethdb.KeyValueStore {
 	panic("implement me")
 }
 
-func (db *Database) ShardIndexByHash(h common.Hash) uint64 {
+func (db *Database) ShardIndexByTriePath(path []byte) uint64 {
 	panic("implement me")
 }
 

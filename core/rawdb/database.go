@@ -64,18 +64,18 @@ func (frdb *freezerdb) Shard(index uint64) ethdb.KeyValueStore {
 	return frdb.sharding.Shard(index)
 }
 
-func (frdb *freezerdb) ShardByHash(h common.Hash) ethdb.KeyValueStore {
+func (frdb *freezerdb) ShardByTriePath(path []byte) ethdb.KeyValueStore {
 	if frdb.sharding == nil {
 		panic("you are using a non-shard db")
 	}
-	return frdb.sharding.ShardByHash(h)
+	return frdb.sharding.ShardByTriePath(path)
 }
 
-func (frdb *freezerdb) ShardIndexByHash(h common.Hash) uint64 {
+func (frdb *freezerdb) ShardIndexByTriePath(path []byte) uint64 {
 	if frdb.sharding == nil {
 		panic("you are using a non-shard db")
 	}
-	return frdb.sharding.ShardIndexByHash(h)
+	return frdb.sharding.ShardIndexByTriePath(path)
 }
 
 // AncientDatadir returns the path of root ancient directory.
@@ -165,18 +165,18 @@ func (db *nofreezedb) Shard(index uint64) ethdb.KeyValueStore {
 	return db.sharding.Shard(index)
 }
 
-func (db *nofreezedb) ShardByHash(h common.Hash) ethdb.KeyValueStore {
+func (db *nofreezedb) ShardByTriePath(path []byte) ethdb.KeyValueStore {
 	if db.sharding == nil {
 		panic("you are using a non-shard db")
 	}
-	return db.sharding.ShardByHash(h)
+	return db.sharding.ShardByTriePath(path)
 }
 
-func (db *nofreezedb) ShardIndexByHash(h common.Hash) uint64 {
+func (db *nofreezedb) ShardIndexByTriePath(path []byte) uint64 {
 	if db.sharding == nil {
 		panic("you are using a non-shard db")
 	}
-	return db.sharding.ShardIndexByHash(h)
+	return db.sharding.ShardIndexByTriePath(path)
 }
 
 // HasAncient returns an error as we don't have a backing chain freezer.
@@ -1095,7 +1095,7 @@ func MigrateSharding(db ethdb.Database, keyPrefix, keyStart []byte) error {
 			accountTries.Add(size)
 			_, p := ResolveAccountTrieNodeKey(key)
 			DeleteAccountTrieNode(srcBatch, p)
-			idx := db.ShardIndexByHash(common.Hash{})
+			idx := db.ShardIndexByTriePath(p)
 			if shardingBatchs[idx] == nil {
 				shardingBatchs[idx] = db.Shard(idx).NewBatch()
 			}
@@ -1104,7 +1104,7 @@ func MigrateSharding(db ethdb.Database, keyPrefix, keyStart []byte) error {
 			storageTries.Add(size)
 			_, h, p := ResolveStorageTrieNode(key)
 			DeleteStorageTrieNode(srcBatch, h, p)
-			idx := db.ShardIndexByHash(h)
+			idx := db.ShardIndexByTriePath(p)
 			if shardingBatchs[idx] == nil {
 				shardingBatchs[idx] = db.Shard(idx).NewBatch()
 			}
@@ -1262,9 +1262,9 @@ func ReadChainMetadata(db ethdb.KeyValueStore) [][]string {
 	return data
 }
 
-func TryShardingByHash(db ethdb.Database, h common.Hash) ethdb.KeyValueStore {
+func TryShardingByTriePath(db ethdb.Database, path []byte) ethdb.KeyValueStore {
 	if !db.Sharded() {
 		panic("you are using a non-shard db")
 	}
-	return db.ShardByHash(h)
+	return db.ShardByTriePath(path)
 }

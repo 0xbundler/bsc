@@ -21,8 +21,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-
-	"github.com/ethereum/go-ethereum/common"
 )
 
 const (
@@ -206,8 +204,8 @@ type Sharding interface {
 	Sharded() bool
 	ShardNum() uint64
 	Shard(index uint64) KeyValueStore
-	ShardByHash(h common.Hash) KeyValueStore
-	ShardIndexByHash(h common.Hash) uint64
+	ShardByTriePath(path []byte) KeyValueStore
+	ShardIndexByTriePath(path []byte) uint64
 }
 
 // Database contains all the methods required by the high level database to not

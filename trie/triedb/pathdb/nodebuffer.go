@@ -156,10 +156,11 @@ func (b *nodebuffer) revert(db ethdb.Database, nodes map[common.Hash]map[string]
 				// In case of database rollback, don't panic if this "clean"
 				// node occurs which is not present in buffer.
 				var nhash common.Hash
+				pb := []byte(path)
 				if owner == (common.Hash{}) {
-					_, nhash = rawdb.ReadAccountTrieNode(rawdb.TryShardingByHash(db, owner), []byte(path))
+					_, nhash = rawdb.ReadAccountTrieNode(rawdb.TryShardingByTriePath(db, pb), pb)
 				} else {
-					_, nhash = rawdb.ReadStorageTrieNode(rawdb.TryShardingByHash(db, owner), owner, []byte(path))
+					_, nhash = rawdb.ReadStorageTrieNode(rawdb.TryShardingByTriePath(db, pb), owner, pb)
 				}
 				// Ignore the clean node in the case described above.
 				if nhash == n.Hash {
@@ -280,31 +281,39 @@ func writeNodes(batch ethdb.Batch, nodes map[common.Hash]map[string]*trienode.No
 // Note this function will also inject all the newly written nodes
 // into clean cache.
 func writeShardingNodes(sharding ethdb.Database, nodes map[common.Hash]map[string]*trienode.Node, clean *fastcache.Cache) (total int, err error) {
+	// create batch
+	batchs := make([]ethdb.Batch, sharding.ShardNum())
+	for i := uint64(0); i < sharding.ShardNum(); i++ {
+		batchs[i] = sharding.Shard(i).NewBatch()
+	}
 	for owner, subset := range nodes {
-		batch := sharding.ShardByHash(owner).NewBatch()
 		for path, n := range subset {
+			pb := []byte(path)
 			if n.IsDeleted() {
 				if owner == (common.Hash{}) {
-					rawdb.DeleteAccountTrieNode(batch, []byte(path))
+					rawdb.DeleteAccountTrieNode(batchs[sharding.ShardIndexByTriePath(pb)], pb)
 				} else {
-					rawdb.DeleteStorageTrieNode(batch, owner, []byte(path))
+					rawdb.DeleteStorageTrieNode(batchs[sharding.ShardIndexByTriePath(pb)], owner, pb)
 				}
 				if clean != nil {
-					clean.Del(cacheKey(owner, []byte(path)))
+					clean.Del(cacheKey(owner, pb))
 				}
 			} else {
 				if owner == (common.Hash{}) {
-					rawdb.WriteAccountTrieNode(batch, []byte(path), n.Blob)
+					rawdb.WriteAccountTrieNode(batchs[sharding.ShardIndexByTriePath(pb)], pb, n.Blob)
 				} else {
-					rawdb.WriteStorageTrieNode(batch, owner, []byte(path), n.Blob)
+					rawdb.WriteStorageTrieNode(batchs[sharding.ShardIndexByTriePath(pb)], owner, pb, n.Blob)
 				}
 				if clean != nil {
-					clean.Set(cacheKey(owner, []byte(path)), n.Blob)
+					clean.Set(cacheKey(owner, pb), n.Blob)
 				}
 			}
 		}
 		total += len(subset)
-		if err = batch.Write(); err != nil {
+	}
+
+	for i := uint64(0); i < sharding.ShardNum(); i++ {
+		if err = batchs[i].Write(); err != nil {
 			return 0, err
 		}
 	}

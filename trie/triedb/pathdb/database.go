@@ -262,11 +262,11 @@ func (db *Database) Reset(root common.Hash) error {
 	if root == types.EmptyRootHash {
 		// Empty state is requested as the target, nuke out
 		// the root node and leave all others as dangling.
-		rawdb.DeleteAccountTrieNode(rawdb.TryShardingByHash(db.diskdb, common.Hash{}), nil)
+		rawdb.DeleteAccountTrieNode(rawdb.TryShardingByTriePath(db.diskdb, nil), nil)
 	} else {
 		// Ensure the requested state is existent before any
 		// action is applied.
-		_, hash := rawdb.ReadAccountTrieNode(rawdb.TryShardingByHash(db.diskdb, common.Hash{}), nil)
+		_, hash := rawdb.ReadAccountTrieNode(rawdb.TryShardingByTriePath(db.diskdb, nil), nil)
 		if hash != root {
 			return fmt.Errorf("state is mismatched, local: %x, target: %x", hash, root)
 		}

@@ -410,10 +410,11 @@ func (nc *nodecache) revert(db ethdb.Database, nodes map[common.Hash]map[string]
 				// In case of database rollback, don't panic if this "clean"
 				// node occurs which is not present in buffer.
 				var nhash common.Hash
+				pb := []byte(path)
 				if owner == (common.Hash{}) {
-					_, nhash = rawdb.ReadAccountTrieNode(rawdb.TryShardingByHash(db, owner), []byte(path))
+					_, nhash = rawdb.ReadAccountTrieNode(rawdb.TryShardingByTriePath(db, pb), pb)
 				} else {
-					_, nhash = rawdb.ReadStorageTrieNode(rawdb.TryShardingByHash(db, owner), owner, []byte(path))
+					_, nhash = rawdb.ReadStorageTrieNode(rawdb.TryShardingByTriePath(db, pb), owner, pb)
 				}
 				// Ignore the clean node in the case described above.
 				if nhash == n.Hash {

@@ -290,7 +290,7 @@ func DeleteTrieNode(db ethdb.KeyValueWriter, owner common.Hash, path []byte, has
 // if the state is not present in database.
 func ReadStateScheme(db ethdb.Database) string {
 	// Check if state in path-based scheme is present
-	blob, _ := ReadAccountTrieNode(TryShardingByHash(db, common.Hash{}), nil)
+	blob, _ := ReadAccountTrieNode(TryShardingByTriePath(db, nil), nil)
 	if len(blob) != 0 {
 		return PathScheme
 	}

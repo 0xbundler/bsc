@@ -17,7 +17,6 @@
 package rawdb
 
 import (
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
 )
 
@@ -40,11 +39,11 @@ func (t *table) Shard(index uint64) ethdb.KeyValueStore {
 	panic("implement me")
 }
 
-func (t *table) ShardByHash(h common.Hash) ethdb.KeyValueStore {
+func (t *table) ShardByTriePath(path []byte) ethdb.KeyValueStore {
 	panic("implement me")
 }
 
-func (t *table) ShardIndexByHash(h common.Hash) uint64 {
+func (t *table) ShardIndexByTriePath(path []byte) uint64 {
 	panic("implement me")
 }
 

@@ -195,9 +195,9 @@ func (dl *diskLayer) Node(owner common.Hash, path []byte, hash common.Hash) ([]b
 		nHash common.Hash
 	)
 	if owner == (common.Hash{}) {
-		nBlob, nHash = rawdb.ReadAccountTrieNode(rawdb.TryShardingByHash(dl.db.diskdb, owner), path)
+		nBlob, nHash = rawdb.ReadAccountTrieNode(rawdb.TryShardingByTriePath(dl.db.diskdb, path), path)
 	} else {
-		nBlob, nHash = rawdb.ReadStorageTrieNode(rawdb.TryShardingByHash(dl.db.diskdb, owner), owner, path)
+		nBlob, nHash = rawdb.ReadStorageTrieNode(rawdb.TryShardingByTriePath(dl.db.diskdb, path), owner, path)
 	}
 	if nHash != hash {
 		diskFalseMeter.Mark(1)

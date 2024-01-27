@@ -1,15 +1,12 @@
 package shardingdb
 
 import (
-	"encoding/binary"
 	"fmt"
 	"path/filepath"
 
 	"github.com/ethereum/go-ethereum/ethdb/pebble"
 
 	"github.com/ethereum/go-ethereum/ethdb"
-
-	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/ethereum/go-ethereum/ethdb/leveldb"
 )
@@ -62,10 +59,24 @@ func (db *Database) ShardNum() uint64 {
 	return uint64(len(db.shards))
 }
 
-func (db *Database) ShardByHash(h common.Hash) ethdb.KeyValueStore {
-	return db.Shard(db.ShardIndexByHash(h))
+func (db *Database) ShardByTriePath(path []byte) ethdb.KeyValueStore {
+	return db.Shard(db.ShardIndexByTriePath(path))
 }
 
-func (db *Database) ShardIndexByHash(h common.Hash) uint64 {
-	return binary.BigEndian.Uint64(h[len(h)-8:]) % uint64(len(db.shards))
+// ShardIndexByTriePath it shard by prefix of path, to keep order and prefetch quick
+// so it max shard is 16
+func (db *Database) ShardIndexByTriePath(path []byte) uint64 {
+	if len(path) == 0 {
+		return 0
+	}
+	return uint64(path[0]) % uint64(len(db.shards))
 }
+
+// TODO comment it to prevent wrong usage
+//func (db *Database) ShardByHash(h common.Hash) ethdb.KeyValueStore {
+//	return db.Shard(db.ShardIndexByHash(h))
+//}
+//
+//func (db *Database) ShardIndexByHash(h common.Hash) uint64 {
+//	return binary.BigEndian.Uint64(h[len(h)-8:]) % uint64(len(db.shards))
+//}
