@@ -594,8 +594,8 @@ func openKeyValueDatabase(o OpenOptions) (ethdb.Database, error) {
 // The passed o.AncientDir indicates the path of root ancient directory where
 // the chain freezer can be opened.
 const shardNum = 2
-const shardHandlesRadio = 0.7
-const shardCacheRadio = 0.5
+const shardHandlesRadio = 0.6
+const shardCacheRadio = 0.6
 
 func Open(o OpenOptions) (ethdb.Database, error) {
 	// reset sharding option
