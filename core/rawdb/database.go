@@ -594,13 +594,14 @@ func openKeyValueDatabase(o OpenOptions) (ethdb.Database, error) {
 // The passed o.AncientDir indicates the path of root ancient directory where
 // the chain freezer can be opened.
 const shardNum = 2
-const shardResRadio = 0.5
+const shardHandlesRadio = 0.7
+const shardCacheRadio = 0.5
 
 func Open(o OpenOptions) (ethdb.Database, error) {
 	// reset sharding option
 	shardOpt := o
-	shardOpt.Handles = int(float64(o.Handles) * shardResRadio / shardNum)
-	shardOpt.Cache = int(float64(o.Cache) * shardResRadio / shardNum)
+	shardOpt.Handles = int(float64(o.Handles) * shardHandlesRadio / shardNum)
+	shardOpt.Cache = int(float64(o.Cache) * shardCacheRadio / shardNum)
 	if shardOpt.Cache < ethdb.MinDatabaseCache {
 		log.Warn("database cache is too low", "resize", ethdb.MinDatabaseCache, "actual", shardOpt.Cache)
 		shardOpt.Cache = ethdb.MinDatabaseCache
@@ -613,8 +614,8 @@ func Open(o OpenOptions) (ethdb.Database, error) {
 
 	// reset maindb option
 	mainOpt := o
-	mainOpt.Handles = int(float64(o.Handles) * (1 - shardResRadio))
-	mainOpt.Cache = int(float64(o.Cache) * (1 - shardResRadio))
+	mainOpt.Handles = int(float64(o.Handles) * (1 - shardHandlesRadio))
+	mainOpt.Cache = int(float64(o.Cache) * (1 - shardCacheRadio))
 	if mainOpt.Cache < ethdb.MinDatabaseCache {
 		log.Warn("database cache is too low", "resize", ethdb.MinDatabaseCache, "actual", mainOpt.Cache)
 		mainOpt.Cache = ethdb.MinDatabaseCache
