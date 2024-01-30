@@ -595,7 +595,7 @@ func openKeyValueDatabase(o OpenOptions) (ethdb.Database, error) {
 // the chain freezer can be opened.
 const shardNum = 2
 const shardHandlesRadio = 0.6
-const shardCacheRadio = 0.6
+const shardCacheRadio = 0.5
 
 func Open(o OpenOptions) (ethdb.Database, error) {
 	// reset sharding option
